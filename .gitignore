@@ -1,0 +1,6 @@
+.claude/
+.claude/
+.DS_Store
+
+# Local Netlify folder
+.netlify
