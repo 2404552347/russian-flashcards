@@ -1,0 +1,19 @@
+{
+  "folders": [
+    {
+      "path": ".",
+      "name": "Russian Flashcards"
+    }
+  ],
+  "settings": {
+    "explorer.fileNesting.enabled": true,
+    "explorer.fileNesting.patterns": {
+      "index.html": "netlify.toml, .gitignore"
+    },
+    "workbench.colorCustomizations": {
+      "titleBar.activeBackground": "#4F46E5",
+      "titleBar.activeForeground": "#FFFFFF",
+      "titleBar.inactiveBackground": "#4F46E599"
+    }
+  }
+}
