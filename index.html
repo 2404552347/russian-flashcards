@@ -4,18 +4,16 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0, user-scalable=yes, viewport-fit=cover">
 <title>多语言单词闪卡</title>
-<script src="https://cdn.jsdelivr.net/npm/mammoth@1.6.0/mammoth.browser.min.js"></script>
-	<link rel="stylesheet" href="css/style.css">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
+<link rel="stylesheet" href="styles.css">
 </head>
 <body>
 
-<!-- =================================================== -->
-<!--  AUTH SCREEN (shown when not logged in)              -->
-<!-- =================================================== -->
+<!-- Auth Screen -->
 <div id="auth-screen" class="auth-overlay">
   <div class="auth-card">
     <div class="auth-header">
-      <h1>📚 多语言闪卡</h1>
+      <h1><i class="fa-solid fa-book-open" style="color:var(--terracotta);font-size:22px;"></i> 多语言闪卡</h1>
       <p>Multi-language flashcard study app</p>
     </div>
     <div class="auth-tabs">
@@ -55,27 +53,28 @@
       <button class="btn btn-primary" onclick="handleRegister()">创建账户</button>
     </div>
 
-    <!-- Account list for quick switching -->
     <div id="account-list" class="account-list"></div>
   </div>
 </div>
 
-<!-- =================================================== -->
 <canvas id="confetti-canvas"></canvas>
-<!--  APP SCREEN                                          -->
-<!-- =================================================== -->
+
+<!-- App Screen -->
 <div id="app-screen">
   <header>
     <div class="header-top">
-      <h2>📚 多语言闪卡 <span class="streak-badge" id="streak-badge" style="display:none;">🔥 <span id="streak-count">0</span></span></h2>
+      <h2>
+        <i class="fa-solid fa-book-open" style="color:var(--terracotta);font-size:18px;"></i>
+        多语言闪卡
+        <span class="streak-badge" id="streak-badge" style="display:none;"><i class="fa-solid fa-fire"></i> <span id="streak-count">0</span></span>
+      </h2>
       <div class="header-right">
-        <button class="btn-theme" id="btn-theme" onclick="toggleTheme()" title="切换主题">🌙</button>
         <span class="user-info">
           <span id="current-user" class="user-name"></span>
-          <button class="btn-icon" onclick="logoutAccount()" title="切换账户 / 退出">🚪</button>
+          <button class="btn-icon" onclick="logoutAccount()" title="切换账户 / 退出"><i class="fa-solid fa-right-from-bracket"></i></button>
         </span>
-        <button class="btn-icon" onclick="openImportModal()">📥</button>
-        <button class="btn-icon" onclick="openSettings()" title="设置">⚙️</button>
+        <button class="btn-icon" onclick="openImportModal()" title="导入"><i class="fa-solid fa-file-import"></i></button>
+        <button class="btn-icon" onclick="openSettings()" title="设置"><i class="fa-solid fa-gear"></i></button>
       </div>
     </div>
     <div class="lang-tabs-wrap">
@@ -90,11 +89,11 @@
   </div>
 
   <div class="stats" id="stats-bar">
-    <span>⏳ 待复习 <strong id="stat-due">0</strong></span>
-    <span>📅 学习中 <strong id="stat-learning">0</strong></span>
-    <span>✅ 已掌握 <strong id="stat-mastered">0</strong></span>
-    <span>📝 新词 <strong id="stat-new">0</strong></span>
-    <span>📚 总计 <strong id="stat-total">0</strong></span>
+    <span><i class="fa-regular fa-clock"></i> 待复习 <strong id="stat-due">0</strong></span>
+    <span><i class="fa-regular fa-calendar-days"></i> 学习中 <strong id="stat-learning">0</strong></span>
+    <span><i class="fa-solid fa-check"></i> 已掌握 <strong id="stat-mastered">0</strong></span>
+    <span><i class="fa-solid fa-pen"></i> 新词 <strong id="stat-new">0</strong></span>
+    <span><i class="fa-solid fa-book"></i> 总计 <strong id="stat-total">0</strong></span>
   </div>
 
   <div class="network-info" id="network-info" style="display:none;">
@@ -105,19 +104,19 @@
 
   <div class="bottom-nav">
     <button class="nav-item active" id="nav-flashcard" onclick="setMode('flashcard')">
-      <span class="nav-icon">🃏</span>闪卡
+      <span class="nav-icon"><i class="fa-solid fa-address-card"></i></span>闪卡
     </button>
     <button class="nav-item" id="nav-quiz" onclick="setMode('quiz')">
-      <span class="nav-icon">🎯</span>测验
+      <span class="nav-icon"><i class="fa-solid fa-bullseye"></i></span>测验
     </button>
     <button class="nav-item" id="nav-list" onclick="setMode('list')">
-      <span class="nav-icon">📋</span>词汇表
+      <span class="nav-icon"><i class="fa-solid fa-list-ul"></i></span>词汇表
     </button>
     <button class="nav-item" id="nav-listen" onclick="setMode('listen')">
-      <span class="nav-icon">🎧</span>听力
+      <span class="nav-icon"><i class="fa-solid fa-headphones"></i></span>听力
     </button>
     <button class="nav-item" id="nav-stats" onclick="setMode('stats')">
-      <span class="nav-icon">📊</span>统计
+      <span class="nav-icon"><i class="fa-solid fa-chart-simple"></i></span>统计
     </button>
   </div>
 
@@ -127,7 +126,7 @@
 <!-- Settings Panel -->
 <div class="settings-panel" id="settings-panel">
   <div class="settings-sheet">
-    <h3>⚙️ 设置</h3>
+    <h3><i class="fa-solid fa-gear"></i> 设置</h3>
     <div class="settings-row">
       <div><label>每日目标</label><div class="setting-desc">每天需要复习的单词数</div></div>
       <input type="number" class="setting-input" id="setting-daily-goal" min="5" max="200" value="20" onchange="updateDailyGoal(this.value)">
@@ -173,11 +172,11 @@
       <input type="number" class="setting-input" id="setting-repeat-count" min="1" max="5" value="1" onchange="updateRepeatCount(this.value)">
     </div>
     <div class="settings-row">
-      <button class="btn btn-outline btn-sm" onclick="exportWords()" style="flex:1;margin-right:8px;">📤 导出全部</button>
-      <button class="btn btn-outline btn-sm" onclick="exportStarredWords()" style="flex:1;margin-left:8px;">⭐ 导出收藏</button>
+      <button class="btn btn-sand btn-sm" onclick="exportWords()" style="flex:1;margin-right:8px;"><i class="fa-solid fa-file-export"></i> 导出全部</button>
+      <button class="btn btn-sand btn-sm" onclick="exportStarredWords()" style="flex:1;margin-left:8px;"><i class="fa-solid fa-star" style="color:var(--warning-amber);"></i> 导出收藏</button>
     </div>
     <div class="settings-row" style="border:none;padding-top:12px;">
-      <button class="btn btn-danger btn-sm" onclick="closeSettings();deleteCurrentDeck();">🗑️ 删除此语言</button>
+      <button class="btn btn-danger btn-sm" onclick="closeSettings();deleteCurrentDeck();"><i class="fa-solid fa-trash"></i> 删除此语言</button>
     </div>
     <div style="text-align:center;margin-top:12px;">
       <button class="btn btn-ghost btn-sm" onclick="closeSettings()">关闭</button>
@@ -185,27 +184,23 @@
   </div>
 </div>
 
-<!-- =================================================== -->
-<!--  MODALS                                              -->
-<!-- =================================================== -->
-
 <!-- Import Modal -->
 <div class="modal-overlay" id="import-modal">
   <div class="modal">
     <div class="modal-header">
       <h3>导入单词到 <span id="import-deck-name"></span></h3>
-      <button class="modal-close" onclick="closeImportModal()">✕</button>
+      <button class="modal-close" onclick="closeImportModal()"><i class="fa-solid fa-xmark"></i></button>
     </div>
     <div class="modal-body">
       <div class="form-group" style="margin-bottom:12px;">
         <label>导入到文件夹</label>
         <div style="display:flex;gap:8px;align-items:center;">
-          <select id="import-folder-select" style="flex:1;padding:8px 10px;border:1.5px solid var(--border);border-radius:8px;font-size:14px;font-family:inherit;"></select>
+          <select id="import-folder-select" style="flex:1;padding:8px 10px;border:1px solid var(--border);border-radius:8px;font-size:14px;font-family:inherit;background:var(--card);color:var(--text);"></select>
           <button class="btn btn-outline btn-sm" onclick="importCreateFolder()" style="white-space:nowrap;">+ 新建</button>
         </div>
       </div>
       <div class="drop-zone" id="drop-zone" onclick="document.getElementById('file-input').click()">
-        <div class="dz-icon">📄</div>
+        <div class="dz-icon"><i class="fa-solid fa-cloud-arrow-up fa-2x"></i></div>
         <div class="dz-text">点击上传或拖拽文件到此处</div>
         <div class="dz-hint">支持 .docx / .txt 文件</div>
         <input type="file" id="file-input" accept=".docx,.txt" onchange="handleFile(event)">
@@ -217,7 +212,7 @@
       <div id="preview-section" style="display:none;">
         <div class="preview-count">
           <span id="preview-count-text"></span>
-          <button class="btn btn-ghost btn-sm" onclick="clearImport()" style="color:#c44536;">清除</button>
+          <button class="btn btn-ghost btn-sm" onclick="clearImport()" style="color:var(--error-crimson);">清除</button>
         </div>
         <div style="max-height: 280px; overflow-y: auto;">
           <table class="preview-table">
@@ -239,7 +234,7 @@
   <div class="modal">
     <div class="modal-header">
       <h3>编辑单词</h3>
-      <button class="modal-close" onclick="closeEditModal()">✕</button>
+      <button class="modal-close" onclick="closeEditModal()"><i class="fa-solid fa-xmark"></i></button>
     </div>
     <div class="modal-body">
       <div class="form-group"><label>单词</label><input type="text" id="edit-ru" placeholder="单词"></div>
@@ -259,10 +254,10 @@
   <div class="modal">
     <div class="modal-header">
       <h3>添加语言</h3>
-      <button class="modal-close" onclick="closeAddLangModal()">✕</button>
+      <button class="modal-close" onclick="closeAddLangModal()"><i class="fa-solid fa-xmark"></i></button>
     </div>
     <div class="modal-body">
-      <p style="font-size:13px;color:#888;margin-bottom:12px;">选择预设语言模板，或自定义新语言</p>
+      <p style="font-size:13px;color:var(--text-secondary);margin-bottom:12px;">选择预设语言模板，或自定义新语言</p>
       <div class="lang-presets" id="lang-presets"></div>
       <div class="divider">或自定义语言</div>
       <div class="form-group"><label>语言名称</label><input type="text" id="custom-lang-name" placeholder="例如：意大利语"></div>
@@ -278,10 +273,12 @@
 
 <!-- Loading Overlay -->
 <div class="loading-overlay" id="loading-overlay" style="display:none;">
-  <div>⏳ 加载中...</div>
+  <div><i class="fa-solid fa-spinner fa-spin-pulse"></i> 加载中...</div>
 </div>
 
-	<script src="js/app.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/js/all.min.js"></script>
+<script src="storage.js"></script>
+<script src="app.js"></script>
 
 </body>
 </html>

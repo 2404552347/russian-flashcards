@@ -1,129 +1,3 @@
-// ========================================================
-//  ACCOUNT SYSTEM -- SESSION & STORAGE INFRASTRUCTURE
-// ========================================================
-const ACCOUNTS_KEY = 'flashcards_accounts';
-const SESSION_KEY = 'flashcards_session';
-
-// Legacy keys (for migration of pre-account data)
-const LEGACY_LANGS_KEY = 'flashcards_languages_v2';
-const LEGACY_DECK_PREFIX = 'flashcards_deck_v2_';
-const LEGACY_SRS_PREFIX = 'flashcards_srs_v2_';
-
-// ── Session management ─────────────────────────────────
-function getCurrentSession() {
-  try { const raw = localStorage.getItem(SESSION_KEY); return raw ? JSON.parse(raw) : null; }
-  catch(e) { return null; }
-}
-function saveSession(accountId, username) {
-  localStorage.setItem(SESSION_KEY, JSON.stringify({ accountId, username }));
-}
-function clearSession() { localStorage.removeItem(SESSION_KEY); }
-
-// ── Account store ──────────────────────────────────────
-function loadAccounts() {
-  try { const raw = localStorage.getItem(ACCOUNTS_KEY); return raw ? JSON.parse(raw) : {}; }
-  catch(e) { return {}; }
-}
-function saveAccounts(accounts) { localStorage.setItem(ACCOUNTS_KEY, JSON.stringify(accounts)); }
-
-// ── Password hashing (SHA-256 via Web Crypto) ──────────
-function generateSalt() {
-  return Array.from(crypto.getRandomValues(new Uint8Array(16)))
-    .map(b => b.toString(16).padStart(2, '0')).join('');
-}
-async function hashPassword(password, salt) {
-  const encoder = new TextEncoder();
-  const data = encoder.encode(password + salt);
-  // crypto.subtle requires secure context (HTTPS or localhost); fallback for http://ip access
-  if (crypto.subtle) {
-    const hashBuffer = await crypto.subtle.digest('SHA-256', data);
-    const hashArray = Array.from(new Uint8Array(hashBuffer));
-    return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
-  }
-  // Fallback: iterated simple hash for non-secure contexts (e.g. phone via IP)
-  let h1 = 0xdeadbeef, h2 = 0x41c6ce57;
-  for (let i = 0; i < data.length; i++) {
-    h1 = Math.imul(h1 ^ data[i], 2654435761);
-    h2 = Math.imul(h2 ^ data[i], 1597334677);
-  }
-  // Multiple rounds for basic stretching
-  for (let r = 0; r < 1000; r++) {
-    h1 = Math.imul(h1 ^ (h2 >>> 16), 2654435761);
-    h2 = Math.imul(h2 ^ (h1 & 0xffff), 1597334677);
-  }
-  return (h1 >>> 0).toString(16).padStart(8, '0') + (h2 >>> 0).toString(16).padStart(8, '0');
-}
-
-// ── Key namespace helper ───────────────────────────────
-function getStorageKey(suffix) {
-  const session = getCurrentSession();
-  if (!session || !session.accountId) throw new Error('No active account session');
-  return 'flashcards_' + session.accountId + '_' + suffix;
-}
-
-// ── Namespaced localStorage I/O ────────────────────────
-function loadLangsFromStorage() {
-  try { const raw = localStorage.getItem(getStorageKey('languages_v2')); return raw ? JSON.parse(raw) : null; }
-  catch(e) { return null; }
-}
-function saveLangsToStorage(langs) { localStorage.setItem(getStorageKey('languages_v2'), JSON.stringify(langs)); }
-
-function loadDeckFromStorage(lang, folderId) {
-  const suffix = folderId ? 'deck_v2_' + lang + '_' + folderId : 'deck_v2_' + lang;
-  try { const raw = localStorage.getItem(getStorageKey(suffix)); return raw ? JSON.parse(raw) : null; }
-  catch(e) { return null; }
-}
-function saveDeckToStorage(lang, words, folderId) {
-  const suffix = folderId ? 'deck_v2_' + lang + '_' + folderId : 'deck_v2_' + lang;
-  localStorage.setItem(getStorageKey(suffix), JSON.stringify(words));
-}
-
-function loadSRSFromStorage(lang, folderId) {
-  const suffix = folderId ? 'srs_v2_' + lang + '_' + folderId : 'srs_v2_' + lang;
-  try { const raw = localStorage.getItem(getStorageKey(suffix)); return raw ? JSON.parse(raw) : {}; }
-  catch(e) { return {}; }
-}
-function saveSRSToStorage(lang, data, folderId) {
-  const suffix = folderId ? 'srs_v2_' + lang + '_' + folderId : 'srs_v2_' + lang;
-  localStorage.setItem(getStorageKey(suffix), JSON.stringify(data));
-}
-
-// Folder list I/O
-function loadFoldersFromStorage(lang) {
-  try { const raw = localStorage.getItem(getStorageKey('folders_v2_' + lang)); return raw ? JSON.parse(raw) : null; }
-  catch(e) { return null; }
-}
-function saveFoldersToStorage(lang, flds) { localStorage.setItem(getStorageKey('folders_v2_' + lang), JSON.stringify(flds)); }
-
-// ========================================================
-//  AUTH OPERATIONS (register, login, logout)
-// ========================================================
-async function registerAccount(username, password) {
-  const accounts = loadAccounts();
-  const exists = Object.values(accounts).some(a => a.username.toLowerCase() === username.toLowerCase());
-  if (exists) return { success: false, error: '用户名已存在。' };
-
-  const accountId = crypto.randomUUID ? crypto.randomUUID() : 'acct-' + Date.now() + '-' + Math.random().toString(36).substr(2, 9);
-  const salt = generateSalt();
-  const passwordHash = await hashPassword(password, salt);
-
-  accounts[accountId] = { username, passwordHash, salt, createdAt: new Date().toISOString() };
-  saveAccounts(accounts);
-  return { success: true, accountId, username };
-}
-
-async function loginAccount(username, password) {
-  const accounts = loadAccounts();
-  const entry = Object.entries(accounts).find(([_, a]) => a.username.toLowerCase() === username.toLowerCase());
-  if (!entry) return { success: false, error: '账户不存在。' };
-
-  const [accountId, account] = entry;
-  const passwordHash = await hashPassword(password, account.salt);
-  if (passwordHash !== account.passwordHash) return { success: false, error: '密码错误。' };
-
-  return { success: true, accountId, username: account.username };
-}
-
 function logoutAccount() {
   clearSession();
   userLanguages = []; WORDS = []; srsData = {}; activeLang = 'ru';
@@ -134,55 +8,6 @@ function logoutAccount() {
   document.getElementById('network-info').style.display = 'none';
   showAuthScreen();
 }
-
-// ========================================================
-//  DATA MIGRATION (legacy non-namespaced -> namespaced)
-// ========================================================
-function detectLegacyData() {
-  return localStorage.getItem(LEGACY_LANGS_KEY) !== null;
-}
-
-function migrateLegacyData(accountId) {
-  const langsJson = localStorage.getItem(LEGACY_LANGS_KEY);
-  if (!langsJson) return { migrated: false };
-
-  const langs = JSON.parse(langsJson);
-  localStorage.setItem('flashcards_' + accountId + '_languages_v2', langsJson);
-
-  for (const langMeta of langs) {
-    const langCode = langMeta.lang;
-    const oldDeckKey = LEGACY_DECK_PREFIX + langCode;
-    const oldSrsKey = LEGACY_SRS_PREFIX + langCode;
-    const deckJson = localStorage.getItem(oldDeckKey);
-    if (deckJson !== null) {
-      localStorage.setItem('flashcards_' + accountId + '_deck_v2_' + langCode, deckJson);
-      localStorage.removeItem(oldDeckKey);
-    }
-    const srsJson = localStorage.getItem(oldSrsKey);
-    if (srsJson !== null) {
-      localStorage.setItem('flashcards_' + accountId + '_srs_v2_' + langCode, srsJson);
-      localStorage.removeItem(oldSrsKey);
-    }
-  }
-  localStorage.removeItem(LEGACY_LANGS_KEY);
-
-  // Catch orphaned keys
-  for (let i = 0; i < localStorage.length; i++) {
-    const key = localStorage.key(i);
-    if (key && key.startsWith(LEGACY_DECK_PREFIX)) {
-      const langCode = key.slice(LEGACY_DECK_PREFIX.length);
-      localStorage.setItem('flashcards_' + accountId + '_deck_v2_' + langCode, localStorage.getItem(key));
-      localStorage.removeItem(key);
-    }
-    if (key && key.startsWith(LEGACY_SRS_PREFIX)) {
-      const langCode = key.slice(LEGACY_SRS_PREFIX.length);
-      localStorage.setItem('flashcards_' + accountId + '_srs_v2_' + langCode, localStorage.getItem(key));
-      localStorage.removeItem(key);
-    }
-  }
-  return { migrated: true };
-}
-
 // ========================================================
 //  AUTH UI (screen toggle, tab switching, form handlers)
 // ========================================================
@@ -303,7 +128,6 @@ function enterApp(username) {
     manualAdvance = localStorage.getItem('flashcards_manual_advance') === '1';
     listenSpeechRate = parseFloat(localStorage.getItem('flashcards_speech_rate')) || 0.85;
     listenRepeatCount = parseInt(localStorage.getItem('flashcards_repeat_count')) || 1;
-    listenTimerDuration = parseInt(localStorage.getItem('flashcards_listen_timer')) || 0;
     document.getElementById('setting-sound').checked = soundEnabled;
     document.getElementById('setting-haptic').checked = hapticEnabled;
     document.getElementById('setting-auto-speak').checked = flashcardAutoSpeak;
@@ -407,6 +231,12 @@ function addLangLocal(code, name, flag, speechLang) {
   saveFoldersToStorage(code, [df]);
   saveDeckToStorage(code, [], df.id);
   saveSRSToStorage(code, {}, df.id);
+  // Delay voice check to let _cachedVoices load if needed
+  setTimeout(() => {
+    if (checkVoiceAvailable(speechLang) === false) {
+      remindVoiceMissing(speechLang);
+    }
+  }, 500);
 }
 
 function deleteLangLocal(code) {
@@ -1735,7 +1565,6 @@ let starredWords = {};
 let listenIndex = 0, listenPlaying = false, listenRepeatCount = 1, listenSpeechRate = 0.85;
 let listenLoopMode = 'folder'; // 'folder' | 'next'
 let listenRepeatRemaining = 0, listenTimeout = null;
-let listenTimerDuration = 0, listenTimerRemaining = 0, listenTimerInterval = null; // timer in seconds
 
 // ========================================================
 //  UTILS
@@ -1835,19 +1664,65 @@ function updateStats() {
 let _lastUtterance = null;
 function speakWord(text) {
   if (!('speechSynthesis' in window)) return;
+  if (!text || typeof text !== 'string') return;
   window.speechSynthesis.cancel();
+  // Chrome bug workaround: resume after cancel to un-stuck the synthesizer
+  if (speechSynthesis.paused) speechSynthesis.resume();
   const utterance = new SpeechSynthesisUtterance(text);
   _lastUtterance = utterance;
-  const currentLang = userLanguages.find(l => l.lang === activeLang);
-  const speechLang = currentLang ? currentLang.speech_lang : 'en-US';
+  const currentLang = userLanguages ? userLanguages.find(l => l.lang === activeLang) : null;
+  const speechLang = currentLang ? currentLang.speech_lang : 'ru-RU';
   utterance.lang = speechLang;
-  utterance.rate = listenSpeechRate;
-  const voices = speechSynthesis.getVoices();
-  const voice = voices.find(v => v.lang.startsWith(speechLang.split('-')[0]));
-  if (voice) utterance.voice = voice;
+  utterance.rate = (typeof listenSpeechRate === 'number') ? listenSpeechRate : 0.85;
+  utterance.volume = 1;
+  const voices = _cachedVoices && _cachedVoices.length ? _cachedVoices : speechSynthesis.getVoices();
+  if (voices.length) {
+    const voice = voices.find(v => v.lang.startsWith(speechLang.split('-')[0]));
+    if (voice) utterance.voice = voice;
+  }
   speechSynthesis.speak(utterance);
+  warnOnFirstSpeak(speechLang);
 }
-if ('speechSynthesis' in window) speechSynthesis.getVoices();
+let _cachedVoices = null;
+let _voiceReady = false;
+let _voicesEverRendered = false;
+function _onVoicesReady() {
+  _cachedVoices = speechSynthesis.getVoices();
+  _voiceReady = true;
+  if (!_voicesEverRendered) { _voicesEverRendered = true; renderLangTabs(); }
+}
+if ('speechSynthesis' in window) {
+  speechSynthesis.getVoices();
+  speechSynthesis.onvoiceschanged = _onVoicesReady;
+  // Fallback: some browsers never fire onvoiceschanged
+  setTimeout(() => { if (!_voiceReady) _onVoicesReady(); }, 1000);
+}
+
+function checkVoiceAvailable(speechLang) {
+  if (!_voiceReady) return 'unknown';
+  const voices = _cachedVoices || speechSynthesis.getVoices();
+  const prefix = (speechLang || 'en-US').split('-')[0];
+  return voices.some(v => v.lang.startsWith(prefix));
+}
+
+function remindVoiceMissing(speechLang) {
+  const key = 'voice_warned_' + (speechLang || 'unknown');
+  if (localStorage.getItem(key)) return;
+  localStorage.setItem(key, '1');
+  const langName = getLangName(speechLang) || speechLang;
+  showToast('未检测到 ' + langName + ' 语音包', '');
+}
+
+function getLangName(speechLang) {
+  const map = { 'ru':'俄语','de':'德语','en':'英语','ko':'韩语','ja':'日语','fr':'法语','es':'西班牙语','it':'意大利语','pt':'葡萄牙语','ar':'阿拉伯语','th':'泰语','vi':'越南语','tr':'土耳其语' };
+  return map[(speechLang || 'en').split('-')[0]] || null;
+}
+
+function warnOnFirstSpeak(speechLang) {
+  if (checkVoiceAvailable(speechLang) === false) {
+    remindVoiceMissing(speechLang);
+  }
+}
 
 // ========================================================
 //  RENDER: LANGUAGE TABS
@@ -1858,8 +1733,10 @@ function renderLangTabs() {
   container.innerHTML = userLanguages.map(l => {
     const active = l.lang === activeLang ? ' active' : '';
     const count = l.lang === activeLang ? WORDS.length : getTotalWordsForLang(l.lang);
+    const hasVoice = checkVoiceAvailable(l.speech_lang);
+    const voiceWarn = hasVoice === false ? '<span class="tab-voice-warn" title="语音不可用">!</span>' : '';
     return `<div class="lang-tab${active}" onclick="switchLanguage('${l.lang}')">
-      <span class="tab-flag">${l.flag||'🌐'}</span>${l.name}
+      <span class="tab-flag">${l.flag||'🌐'}</span>${l.name}${voiceWarn}
       <span class="tab-count">${count}</span>
     </div>`;
   }).join('');
@@ -1948,9 +1825,9 @@ function renderFlashcard() {
     const msgs = { due: '没有待复习的单词！', learning: '没有学习中的单词！', new: '没有新单词！', mastered: '还没有已掌握的单词！', all: '没有单词！', starred: '还没有收藏的单词！' };
     document.getElementById('main-content').innerHTML = `<div class="flashcard-container">
       <div class="filter-bar">${['all','due','learning','new','mastered','starred'].map(f =>
-        `<button onclick="setFlashcardFilter('${f}')" class="${flashcardFilter===f?'active':''}">${f==='all'?'全部':f==='due'?'⏳待复习':f==='learning'?'📅学习中':f==='new'?'📝新词':f==='mastered'?'✅已掌握':'⭐收藏'}</button>`
+        `<button onclick="setFlashcardFilter('${f}')" class="${flashcardFilter===f?'active':''}">${f==='all'?'全部':f==='due'?'<i class="fa-regular fa-clock"></i>待复习':f==='learning'?'<i class="fa-regular fa-calendar-days"></i>学习中':f==='new'?'<i class="fa-solid fa-pen"></i>新词':f==='mastered'?'<i class="fa-solid fa-check"></i>已掌握':'<i class="fa-solid fa-star" style="color:var(--warning-amber);"></i>收藏'}</button>`
       ).join('')}</div>
-      <div class="empty-state"><div style="font-size:40px;margin-bottom:12px;">🎯</div><div>${msgs[flashcardFilter]}</div></div></div>`;
+      <div class="empty-state"><div style="font-size:40px;margin-bottom:12px;"><i class="fa-solid fa-bullseye"></i></div><div>${msgs[flashcardFilter]}</div></div></div>`;
     return;
   }
   if (flashcardIndex >= flashcardPool.length) flashcardIndex = 0;
@@ -1961,13 +1838,13 @@ function renderFlashcard() {
 
   document.getElementById('main-content').innerHTML = `<div class="flashcard-container card-enter">
     <div class="filter-bar">${['all','due','learning','new','mastered','starred'].map(f =>
-      `<button onclick="setFlashcardFilter('${f}')" class="${flashcardFilter===f?'active':''}">${f==='all'?'全部':f==='due'?'⏳'+countByCategory('due'):f==='learning'?'📅'+countByCategory('learning'):f==='new'?'📝'+countByCategory('new'):f==='mastered'?'✅'+countByCategory('mastered'):'⭐'+starredCount()}</button>`
+      `<button onclick="setFlashcardFilter('${f}')" class="${flashcardFilter===f?'active':''}">${f==='all'?'全部':f==='due'?'<i class="fa-regular fa-clock"></i>'+countByCategory('due'):f==='learning'?'<i class="fa-regular fa-calendar-days"></i>'+countByCategory('learning'):f==='new'?'<i class="fa-solid fa-pen"></i>'+countByCategory('new'):f==='mastered'?'<i class="fa-solid fa-check"></i>'+countByCategory('mastered'):'<i class="fa-solid fa-star" style="color:var(--warning-amber);"></i>'+starredCount()}</button>`
     ).join('')}</div>
     <div class="word-progress">${flashcardIndex+1} / ${flashcardPool.length} · <span class="card-srs-badge ${badge}">${label}</span></div>
 
     <div class="card-stage" id="card-stage">
-      <button class="star-btn-card ${starredClass}" id="star-btn" onclick="event.stopPropagation();toggleStar('${w.id}');renderStarBtn()" title="收藏">⭐</button>
-      <button class="speak-btn-card" onclick="event.stopPropagation();speakWord('${w.ru.replace(/'/g,"\\'")}')" title="发音">🔊</button>
+      <button class="star-btn-card ${starredClass}" id="star-btn" onclick="event.stopPropagation();toggleStar('${w.id}');renderStarBtn()" title="收藏"><i class="fa-solid fa-star" style="color:var(--warning-amber);"></i></button>
+      <button class="speak-btn-card" onclick="event.stopPropagation();speakWord('${w.ru.replace(/'/g,"\\'")}')" title="发音"><i class="fa-solid fa-volume-high"></i></button>
 
       <div class="russian-word">${w.ru}</div>
       <div class="russian-tr">${w.tr||''}</div>
@@ -2086,7 +1963,7 @@ function renderQuiz() {
         <button onclick="setQuizType('typing')" class="${quizType==='typing'?'active':''}">⌨️ 打字</button>
       </div>
       <div style="text-align:center;padding:60px 20px;">
-        <div style="font-size:48px;margin-bottom:16px;">🎉</div>
+        <div style="font-size:48px;margin-bottom:16px;"><i class="fa-solid fa-champagne-glasses"></i></div>
         <div style="font-size:22px;font-weight:600;margin-bottom:8px;">测验完成！</div>
         <div style="font-size:16px;color:#666;margin-bottom:24px;">正确 ${correct}/${quizWords.length}</div>
         <button class="btn btn-primary" onclick="startQuiz()">再来一轮</button>
@@ -2112,7 +1989,7 @@ function renderNormalQuiz(w) {
     </div>
     <div style="display:flex;justify-content:center;align-items:center;gap:8px;">
       <div class="quiz-prompt">${w.ru}</div>
-      <button class="btn-speak" style="position:static;" onclick="event.stopPropagation();speakWord('${w.ru.replace(/'/g,"\\'")}')">🔊</button>
+      <button class="btn-speak" style="position:static;" onclick="event.stopPropagation();speakWord('${w.ru.replace(/'/g,"\\'")}')"><i class="fa-solid fa-volume-high"></i></button>
     </div>
     <div class="quiz-prompt-sub">${w.tr||''}</div>
     <div class="word-counter">第 ${quizIndex+1}/${quizWords.length} 题</div>
@@ -2168,14 +2045,14 @@ function submitTyping() {
   const fb = document.getElementById('quiz-feedback');
   if (isCorrect) {
     input.classList.add('correct-typing'); input.disabled = true;
-    fb.textContent = '✅ 完全正确！'; fb.className = 'quiz-feedback correct-fb';
+    fb.innerHTML = '<i class="fa-solid fa-check"></i> 完全正确！'; fb.className = 'quiz-feedback correct-fb';
     w._correct = true;
     setSRS(w.id, updateProficiency('know', getSRS(w.id)));
     speakWord(w.ru);
     playSound('correct'); vibrate('correct');
   } else {
     input.classList.add('wrong-typing'); input.disabled = true;
-    fb.innerHTML = `❌ 正确答案是：<strong>${w.ru}</strong> ${w.tr||''}`;
+    fb.innerHTML = `<i class="fa-solid fa-xmark"></i> 正确答案是：<strong>${w.ru}</strong> ${w.tr||''}`;
     fb.className = 'quiz-feedback wrong-fb';
     setSRS(w.id, updateProficiency('forgot', getSRS(w.id)));
     playSound('wrong'); vibrate('wrong');
@@ -2196,12 +2073,12 @@ function answerQuizChoice(selectedId) {
   });
   const fb = document.getElementById('quiz-feedback');
   if (isCorrect) {
-    fb.textContent = '✅ 正确！'; fb.className = 'quiz-feedback correct-fb';
+    fb.innerHTML = '<i class="fa-solid fa-check"></i> 正确！'; fb.className = 'quiz-feedback correct-fb';
     w._correct = true;
     setSRS(w.id, updateProficiency('know', getSRS(w.id)));
     playSound('correct'); vibrate('correct');
   } else {
-    fb.innerHTML = quizType === 'zh-ru' ? `❌ 正确答案：<strong>${w.ru}</strong> ${w.tr||''} (${w.zh})` : '❌ 正确答案：' + w.zh;
+    fb.innerHTML = quizType === 'zh-ru' ? `<i class="fa-solid fa-xmark"></i> 正确答案：<strong>${w.ru}</strong> ${w.tr||''} (${w.zh})` : '<i class="fa-solid fa-xmark"></i> 正确答案：' + w.zh;
     fb.className = 'quiz-feedback wrong-fb';
     setSRS(w.id, updateProficiency('forgot', getSRS(w.id)));
     playSound('wrong'); vibrate('wrong');
@@ -2292,7 +2169,7 @@ function refreshListResults() {
           <span class="word-zh">${w[2]}</span>
           <span style="font-size:12px;color:var(--text-muted);">${w[3]||''}</span>
           <div class="word-actions">
-            <button class="btn-action speak-btn" onclick="speakWord('${w[0].replace(/'/g,"\\'")}')">🔊</button>
+            <button class="btn-action speak-btn" onclick="speakWord('${w[0].replace(/'/g,"\\'")}')"><i class="fa-solid fa-volume-high"></i></button>
             ${isAdded
               ? '<span style="font-size:11px;color:var(--success);">✓</span>'
               : `<button class="btn btn-outline btn-sm" style="padding:3px 8px;font-size:11px;" onclick="addFromDictionary('${w[0].replace(/'/g,"\\'")}','${(w[1]||'').replace(/'/g,"\\'")}','${w[2].replace(/'/g,"\\'")}','${(w[3]||'').replace(/'/g,"\\'")}')">+ 添加</button>`
@@ -2308,8 +2185,8 @@ function refreshListResults() {
       <div class="word-left"><div><span class="word-ru">${w.ru}</span></div><div class="word-tr">${w.tr||''}</div><div class="word-srs"><span class="card-srs-badge ${getSRSBadgeClass(w.id)}">${getSRSLabel(w.id)}</span></div></div>
       <div style="display:flex;align-items:center;gap:10px;"><span class="word-zh">${w.zh}</span><span style="font-size:12px;color:var(--text-muted);">${w.pos||''}</span>
       <div class="word-actions">
-        <button class="btn-action star-btn" onclick="toggleStar('${w.id}');renderList();" style="color:${isStarred(w.id)?'#F59E0B':''};">${isStarred(w.id)?'⭐':'☆'}</button>
-        <button class="btn-action speak-btn" onclick="speakWord('${w.ru.replace(/'/g,"\\'")}')">🔊</button>
+        <button class="btn-action star-btn" onclick="toggleStar('${w.id}');renderList();" style="color:${isStarred(w.id)?'#F59E0B':''};">${isStarred(w.id)?'<i class="fa-solid fa-star" style="color:var(--warning-amber);"></i>':'<i class="fa-regular fa-star"></i>'}</button>
+        <button class="btn-action speak-btn" onclick="speakWord('${w.ru.replace(/'/g,"\\'")}')"><i class="fa-solid fa-volume-high"></i></button>
         <button class="btn-action edit-btn" onclick="openEditModal('${w.id}')">✏️</button>
         <button class="btn-action delete-btn" onclick="deleteWord('${w.id}')">🗑️</button>
       </div></div></div>`).join('') || '<div class="empty-state">没有匹配的单词</div>';
@@ -2371,7 +2248,7 @@ function renderMain() {
 function cleanField(s) {
   if (!s) return '';
   // Characters to strip from both ends: various separators, bullets, etc.
-  const stripChars = '-｜|:：=—–·•*#→⇒\\/@&%$+~`"\'\\s\\\\';
+  const stripChars = '｜|:：=—–-·•*#→⇒\\/@&%$+~`"\'\\s\\\\';
   return s.replace(new RegExp('^[' + stripChars.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + ']+'), '')
           .replace(new RegExp('[' + stripChars.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + ']+$'), '')
           .trim();
@@ -2476,7 +2353,7 @@ function parseLine(line) {
 
   // ── 9. Foreign chars + space(s) + CJK chars (most common loose format) ──
   // Match: non-CJK sequence followed by CJK sequence (separated by whitespace)
-  const foreignSeq = lineNoTr.match(/^([^一-鿿㐀-䶿]+?)\s+([一-鿿㐀-䶿].*)$/);
+  const foreignSeq = lineNoTr.match(/^([^一-鿿㐀-䶿]+?)\s+([一-鿿㐀-䶿].+)$/);
   if (foreignSeq) {
     ru = cleanField(foreignSeq[1]);
     const ep = extractPos(cleanField(foreignSeq[2]));
@@ -2678,21 +2555,12 @@ function deleteCurrentDeck() {
 //  THEME
 // ========================================================
 function applyTheme() {
-  const saved = localStorage.getItem('flashcards_theme');
-  const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
-  const isDark = saved ? saved === 'dark' : prefersDark;
-  document.documentElement.classList.toggle('dark', isDark);
-  document.getElementById('btn-theme').textContent = isDark ? '☀️' : '🌙';
+  // Light theme only — Anthropic design system
 }
 function toggleTheme() {
-  const isDark = document.documentElement.classList.toggle('dark');
-  localStorage.setItem('flashcards_theme', isDark ? 'dark' : 'light');
-  document.getElementById('btn-theme').textContent = isDark ? '☀️' : '🌙';
-  if (currentMode === 'stats') renderStatsDashboard();
+  // Light theme only — no dark mode toggle
 }
-window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => {
-  if (!localStorage.getItem('flashcards_theme')) applyTheme();
-});
+
 
 // ========================================================
 //  SETTINGS
@@ -2738,7 +2606,7 @@ function showToast(msg, type) {
   const container = document.getElementById('toast-container');
   const toast = document.createElement('div');
   toast.className = 'toast' + (type ? ' ' + type : '');
-  toast.textContent = msg;
+  toast.innerHTML = msg;
   container.appendChild(toast);
   setTimeout(() => { if (toast.parentNode) toast.remove(); }, 2500);
 }
@@ -2791,7 +2659,7 @@ function toggleStar(wordId) {
   else starredWords[wordId] = true;
   saveStarred();
   if (currentMode === 'flashcard') {
-    const btn = document.getElementById('card-star-btn');
+    const btn = document.getElementById('star-btn');
     if (btn) { btn.classList.toggle('starred', isStarred(wordId)); btn.classList.add('star-pop'); setTimeout(() => btn.classList.remove('star-pop'), 350); }
   }
 }
@@ -2844,11 +2712,11 @@ function recordReview() {
   dailyGoal = data.dailyGoal;
   updateStreakUI();
   if (data.todayCount === data.dailyGoal) {
-    showToast('🎯 今日目标达成！', 'success');
+    showToast('<i class="fa-solid fa-bullseye"></i> 今日目标达成！', 'success');
     playSound('milestone'); vibrate('milestone');
   }
   if (data.currentStreak > 0 && data.todayCount === 1 && data.currentStreak % 7 === 0) {
-    showToast('🔥 连续 ' + data.currentStreak + ' 天打卡！', 'milestone');
+    showToast('<i class="fa-solid fa-fire"></i> 连续 ' + data.currentStreak + ' 天打卡！', 'milestone');
   }
 }
 function updateStreakUI() {
@@ -2951,7 +2819,7 @@ function renderStatsDashboard() {
       </div>
       <div class="stat-card">
         <div class="stat-value">${data.currentStreak || 0}</div>
-        <div class="stat-label">🔥 连续打卡</div>
+        <div class="stat-label"><i class="fa-solid fa-fire"></i> 连续打卡</div>
       </div>
       <div class="stat-card">
         <div class="stat-value">${WORDS.length}</div>
@@ -2959,11 +2827,11 @@ function renderStatsDashboard() {
       </div>
       <div class="stat-card">
         <div class="stat-value">${totalReviews}</div>
-        <div class="stat-label">📝 总复习次数</div>
+        <div class="stat-label"><i class="fa-solid fa-pen"></i> 总复习次数</div>
       </div>
       <div class="stat-card">
         <div class="stat-value">${masteryRate}%</div>
-        <div class="stat-label">✅ 掌握率</div>
+        <div class="stat-label"><i class="fa-solid fa-check"></i> 掌握率</div>
       </div>
       <div class="stat-card">
         <div class="stat-value">${data.longestStreak || 0}</div>
@@ -2999,15 +2867,15 @@ function drawBarChart() {
   const chartW = w - pad.left - pad.right, chartH = h - pad.top - pad.bottom;
   const barW = Math.max(4, (chartW / days.length) * .7);
   const gap = chartW / days.length;
-  const isDark = document.documentElement.classList.contains('dark');
+  // light only
 
   // Grid
-  ctx.strokeStyle = isDark ? '#334155' : '#E2E8F0';
+  ctx.strokeStyle = '#E2E8F0';
   ctx.lineWidth = .5;
   for (let i = 0; i <= 4; i++) {
     const y = pad.top + (chartH / 4) * i;
     ctx.beginPath(); ctx.moveTo(pad.left, y); ctx.lineTo(w - pad.right, y); ctx.stroke();
-    ctx.fillStyle = isDark ? '#94A3B8' : '#64748B';
+    ctx.fillStyle = '#64748B';
     ctx.font = '10px system-ui'; ctx.textAlign = 'right';
     ctx.fillText(Math.round(maxCount - (maxCount / 4) * i), pad.left - 2, y + 3);
   }
@@ -3020,7 +2888,7 @@ function drawBarChart() {
     const grad = ctx.createLinearGradient(x, y, x, pad.top + chartH);
     if (d.count >= dailyGoal) { grad.addColorStop(0, '#10B981'); grad.addColorStop(1, '#34D399'); }
     else if (d.count > 0) { grad.addColorStop(0, '#4F46E5'); grad.addColorStop(1, '#818CF8'); }
-    else { grad.addColorStop(0, isDark ? '#334155' : '#E2E8F0'); grad.addColorStop(1, isDark ? '#1E293B' : '#F1F5F9'); }
+    else { grad.addColorStop(0, '#E2E8F0'); grad.addColorStop(1, '#F1F5F9'); }
     ctx.fillStyle = grad;
     const radius = Math.min(3, barW / 2);
     ctx.beginPath(); ctx.moveTo(x + radius, y);
@@ -3033,14 +2901,14 @@ function drawBarChart() {
     ctx.fill();
     // label
     if (d.label) {
-      ctx.fillStyle = isDark ? '#94A3B8' : '#64748B';
+      ctx.fillStyle = '#64748B';
       ctx.font = '10px system-ui'; ctx.textAlign = 'center';
       ctx.fillText(d.label, pad.left + gap * i + gap / 2, pad.top + chartH + 16);
     }
   });
 
   // Goal line
-  ctx.strokeStyle = isDark ? 'rgba(245,158,11,.5)' : 'rgba(245,158,11,.6)';
+  ctx.strokeStyle = 'rgba(245,158,11,.6)';
   ctx.lineWidth = 1; ctx.setLineDash([4, 3]);
   const goalY = pad.top + chartH - (dailyGoal / maxCount) * chartH;
   ctx.beginPath(); ctx.moveTo(pad.left, goalY); ctx.lineTo(w - pad.right, goalY); ctx.stroke();
@@ -3066,7 +2934,7 @@ function drawDonutChart() {
   ].filter(s => s.value > 0);
   const total = segments.reduce((a, s) => a + s.value, 0);
   if (total === 0) {
-    ctx.fillStyle = document.documentElement.classList.contains('dark') ? '#94A3B8' : '#64748B';
+    ctx.fillStyle = false ? '#94A3B8' : '#64748B';
     ctx.font = '14px system-ui'; ctx.textAlign = 'center';
     ctx.fillText('暂无数据', cx, cy);
     return;
@@ -3081,17 +2949,17 @@ function drawDonutChart() {
     const midAngle = angle + slice / 2;
     const lx = cx + Math.cos(midAngle) * (outerR + 18);
     const ly = cy + Math.sin(midAngle) * (outerR + 18);
-    ctx.fillStyle = document.documentElement.classList.contains('dark') ? '#F1F5F9' : '#0F172A';
+    ctx.fillStyle = false ? '#F1F5F9' : '#0F172A';
     ctx.font = '11px system-ui'; ctx.textAlign = 'center';
     ctx.fillText(s.label, lx, ly);
     angle += slice;
   });
   // Center
-  ctx.beginPath(); ctx.arc(cx, cy, innerR, 0, Math.PI * 2); ctx.fillStyle = document.documentElement.classList.contains('dark') ? '#1E293B' : '#FFFFFF'; ctx.fill();
-  ctx.fillStyle = document.documentElement.classList.contains('dark') ? '#F1F5F9' : '#0F172A';
+  ctx.beginPath(); ctx.arc(cx, cy, innerR, 0, Math.PI * 2); ctx.fillStyle = false ? '#1E293B' : '#FFFFFF'; ctx.fill();
+  ctx.fillStyle = false ? '#F1F5F9' : '#0F172A';
   ctx.font = 'bold 20px system-ui'; ctx.textAlign = 'center';
   ctx.fillText(total, cx, cy - 4);
-  ctx.font = '11px system-ui'; ctx.fillStyle = document.documentElement.classList.contains('dark') ? '#94A3B8' : '#64748B';
+  ctx.font = '11px system-ui'; ctx.fillStyle = false ? '#94A3B8' : '#64748B';
   ctx.fillText('总计', cx, cy + 14);
 }
 
@@ -3105,7 +2973,7 @@ function drawForgettingCurve() {
   const ctx = canvas.getContext('2d');
   ctx.scale(dpr, dpr);
   const w = rect.width, h = 220;
-  const isDark = document.documentElement.classList.contains('dark');
+  // light only
 
   // Count words due each of the next 7 days
   const now = new Date();
@@ -3134,12 +3002,12 @@ function drawForgettingCurve() {
   const gap = chartW / 7;
 
   // Y-axis grid
-  ctx.strokeStyle = isDark ? '#334155' : '#E2E8F0';
+  ctx.strokeStyle = '#E2E8F0';
   ctx.lineWidth = .5;
   for (let i = 0; i <= 4; i++) {
     const y = pad.top + (chartH / 4) * i;
     ctx.beginPath(); ctx.moveTo(pad.left, y); ctx.lineTo(w - pad.right, y); ctx.stroke();
-    ctx.fillStyle = isDark ? '#94A3B8' : '#64748B';
+    ctx.fillStyle = '#64748B';
     ctx.font = '10px system-ui'; ctx.textAlign = 'right';
     ctx.fillText(Math.round(maxCount - (maxCount / 4) * i), pad.left - 4, y + 3);
   }
@@ -3163,12 +3031,12 @@ function drawForgettingCurve() {
     ctx.quadraticCurveTo(x, y, x + radius, y);
     ctx.fill();
     // Day label
-    ctx.fillStyle = isDark ? '#94A3B8' : '#64748B';
+    ctx.fillStyle = '#64748B';
     ctx.font = '11px system-ui'; ctx.textAlign = 'center';
     ctx.fillText(d.label, pad.left + gap * i + gap / 2, pad.top + chartH + 16);
     // Count on top
     if (d.count > 0) {
-      ctx.fillStyle = isDark ? '#F1F5F9' : '#0F172A';
+      ctx.fillStyle = '#0F172A';
       ctx.font = 'bold 10px system-ui';
       ctx.fillText(d.count, pad.left + gap * i + gap / 2, y - 4);
     }
@@ -3207,29 +3075,15 @@ function renderListen() {
       </div>
     </div>
     <div class="listen-progress">剩余重复 ${listenRepeatRemaining} 次 · 语速 ${listenSpeechRate}x</div>
-    <div class="listen-timer-section">
-      <span>⏰ 定时关闭</span>
-      <select class="listen-timer-select" id="listen-timer-select" onchange="setListenTimerDuration(this.value)" value="${listenTimerDuration}">
-        <option value="0" ${listenTimerDuration===0?'selected':''}>关闭</option>
-        <option value="300" ${listenTimerDuration===300?'selected':''}>5 分钟</option>
-        <option value="600" ${listenTimerDuration===600?'selected':''}>10 分钟</option>
-        <option value="900" ${listenTimerDuration===900?'selected':''}>15 分钟</option>
-        <option value="1200" ${listenTimerDuration===1200?'selected':''}>20 分钟</option>
-        <option value="1800" ${listenTimerDuration===1800?'selected':''}>30 分钟</option>
-        <option value="3600" ${listenTimerDuration===3600?'selected':''}>60 分钟</option>
-      </select>
-      <span class="listen-timer-display" id="listen-timer-display">--:--</span>
-    </div>
     <div class="listen-controls">
-      <button class="btn-listen-sm" onclick="listenPrev()" title="上一个">⏮</button>
+      <button class="btn-listen-sm" onclick="listenPrev()" title="上一个"><i class="fa-solid fa-backward-step"></i></button>
       <button class="btn-listen ${listenPlaying?'':'paused'}" id="btn-listen-play" onclick="toggleListening()">
-        ${listenPlaying ? '⏸' : '▶'}
+        ${listenPlaying ? '<i class="fa-solid fa-pause"></i>' : '<i class="fa-solid fa-play"></i>'}
       </button>
-      <button class="btn-listen-sm" onclick="listenNext()" title="下一个">⏭</button>
+      <button class="btn-listen-sm" onclick="listenNext()" title="下一个"><i class="fa-solid fa-forward-step"></i></button>
     </div>
-    <button class="btn btn-ghost btn-sm" onclick="speakWord('${w.ru.replace(/'/g,"\\'")}')">🔊 手动朗读</button>
+    <button class="btn btn-ghost btn-sm" onclick="speakWord('${w.ru.replace(/'/g,"\\'")}')"><i class="fa-solid fa-volume-high"></i> 手动朗读</button>
   </div>`;
-  setTimeout(updateTimerDisplay, 50);
 }
 
 function setListenLoopMode(mode) {
@@ -3246,8 +3100,7 @@ function startListening() {
   listenPlaying = true;
   if (listenRepeatRemaining <= 0) listenRepeatRemaining = listenRepeatCount;
   const btn = document.getElementById('btn-listen-play');
-  if (btn) { btn.textContent = '⏸'; btn.classList.remove('paused'); }
-  if (listenTimerDuration > 0) startListenTimer();
+  if (btn) { btn.innerHTML = '<i class="fa-solid fa-pause"></i>'; btn.classList.remove('paused'); }
   playCurrentWord();
 }
 
@@ -3256,54 +3109,8 @@ function stopListening() {
   listenRepeatRemaining = 0;
   if (listenTimeout) { clearTimeout(listenTimeout); listenTimeout = null; }
   window.speechSynthesis.cancel();
-  stopListenTimer();
   const btn = document.getElementById('btn-listen-play');
-  if (btn) { btn.textContent = '▶'; btn.classList.add('paused'); }
-}
-
-function startListenTimer() {
-  if (listenTimerDuration <= 0) return;
-  listenTimerRemaining = listenTimerDuration;
-  updateTimerDisplay();
-  if (listenTimerInterval) clearInterval(listenTimerInterval);
-  listenTimerInterval = setInterval(() => {
-    listenTimerRemaining--;
-    updateTimerDisplay();
-    if (listenTimerRemaining <= 0) {
-      stopListening();
-      showToast('⏰ 定时关闭，听力已停止', '');
-    }
-  }, 1000);
-}
-
-function stopListenTimer() {
-  if (listenTimerInterval) { clearInterval(listenTimerInterval); listenTimerInterval = null; }
-  listenTimerRemaining = 0;
-  updateTimerDisplay();
-}
-
-function updateTimerDisplay() {
-  const el = document.getElementById('listen-timer-display');
-  if (!el) return;
-  if (listenTimerRemaining > 0) {
-    const m = Math.floor(listenTimerRemaining / 60);
-    const s = listenTimerRemaining % 60;
-    el.textContent = m + ':' + String(s).padStart(2, '0');
-    el.className = 'listen-timer-display' + (listenTimerRemaining <= 60 ? ' warning' : '');
-  } else {
-    el.textContent = '--:--';
-    el.className = 'listen-timer-display';
-  }
-}
-
-function setListenTimerDuration(val) {
-  listenTimerDuration = parseInt(val) || 0;
-  localStorage.setItem('flashcards_listen_timer', listenTimerDuration);
-  if (listenPlaying) {
-    stopListenTimer();
-    if (listenTimerDuration > 0) startListenTimer();
-  }
-  updateTimerDisplay();
+  if (btn) { btn.innerHTML = '<i class="fa-solid fa-play"></i>'; btn.classList.add('paused'); }
 }
 
 function playCurrentWord() {
@@ -3336,7 +3143,7 @@ function playCurrentWord() {
   const w = WORDS[listenIndex];
   speakWord(w.ru);
   listenRepeatRemaining--;
-  document.getElementById('btn-listen-play').textContent = '⏸';
+  document.getElementById('btn-listen-play').innerHTML = '<i class="fa-solid fa-pause"></i>';
   // Wait for speech to finish, then continue
   const checkSpeechEnd = setInterval(() => {
     if (!listenPlaying || !window.speechSynthesis.speaking) {
@@ -3542,10 +3349,10 @@ function quizHitCombo() {
   quizComboEl.style.animation = 'none';
   quizComboEl.offsetHeight;
   let text = '';
-  if (quizCombo >= 10) { text = '🔥 ' + quizCombo + ' 连击！太强了！'; quizComboEl.className = 'quiz-combo fire'; quizComboEl.style.animation = 'comboShake .4s ease'; }
+  if (quizCombo >= 10) { text = '<i class="fa-solid fa-fire"></i> ' + quizCombo + ' 连击！太强了！'; quizComboEl.className = 'quiz-combo fire'; quizComboEl.style.animation = 'comboShake .4s ease'; }
   else if (quizCombo >= 5) { text = '⚡ ' + quizCombo + ' 连击！'; quizComboEl.className = 'quiz-combo fire'; }
-  else if (quizCombo >= 3) { text = '✨ ' + quizCombo + ' 连击'; quizComboEl.className = 'quiz-combo'; }
-  else { text = '👍 连续正确 ×' + quizCombo; quizComboEl.className = 'quiz-combo'; }
+  else if (quizCombo >= 3) { text = '<i class="fa-solid fa-wand-sparkles"></i> ' + quizCombo + ' 连击'; quizComboEl.className = 'quiz-combo'; }
+  else { text = '<i class="fa-solid fa-thumbs-up"></i> 连续正确 ×' + quizCombo; quizComboEl.className = 'quiz-combo'; }
   quizComboEl.textContent = text;
   quizComboEl.style.animation = 'comboIn .3s ease';
 }
@@ -3575,4 +3382,3 @@ function animateCounters() {
     requestAnimationFrame(step);
   });
 }
-
