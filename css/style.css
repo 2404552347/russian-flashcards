@@ -319,6 +319,28 @@
   .search-bar.has-icon {
     padding-left: 34px;
   }
+  /* ── Word Packs ──────────── */
+  .wordpacks-section {
+    margin-bottom: var(--space);
+    padding: 12px 14px;
+    background: var(--primary-light);
+    border-radius: var(--radius);
+  }
+  .wordpacks-title {
+    font-size: 12px; font-weight: 600; color: var(--primary);
+    margin-bottom: 8px; display: flex; align-items: center; gap: 6px;
+  }
+  .wordpacks-grid {
+    display: flex; flex-direction: column; gap: 6px;
+  }
+  .wordpack-card {
+    display: flex; justify-content: space-between; align-items: center;
+    padding: 10px 12px; background: var(--card); border-radius: var(--radius-sm);
+    gap: 8px;
+  }
+  .wordpack-info { flex: 1; min-width: 0; }
+  .wordpack-name { font-size: 13px; font-weight: 600; color: var(--text); }
+  .wordpack-desc { font-size: 11px; color: var(--text-muted); margin-top: 2px; }
   .wordlist { display: flex; flex-direction: column; gap: 1px; }
   .word-item {
     display: flex; justify-content: space-between; align-items: center;
