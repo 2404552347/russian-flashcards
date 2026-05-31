@@ -287,12 +287,29 @@
   .quiz-next.show { display: block; }
 
   /* ── Word List ──────────── */
+  .search-wrapper {
+    position: relative;
+    margin-bottom: var(--space);
+  }
+  .search-wrapper .search-icon {
+    position: absolute;
+    left: 12px;
+    top: 50%;
+    transform: translateY(-50%);
+    color: var(--text-muted);
+    font-size: 13px;
+    pointer-events: none;
+    z-index: 1;
+  }
   .search-bar {
     width: 100%; padding: 10px 14px; border: 1.5px solid var(--border);
-    border-radius: var(--radius-sm); font-size: 14px; font-family: inherit; margin-bottom: var(--space);
+    border-radius: var(--radius-sm); font-size: 14px; font-family: inherit;
     transition: all var(--transition-fast); background: var(--card); color: var(--text);
   }
   .search-bar:focus { outline: none; border-color: var(--primary); }
+  .search-bar.has-icon {
+    padding-left: 34px;
+  }
   .wordlist { display: flex; flex-direction: column; gap: 1px; }
   .word-item {
     display: flex; justify-content: space-between; align-items: center;

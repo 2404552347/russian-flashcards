@@ -3335,7 +3335,10 @@ function renderList() {
         <button class="btn btn-ghost btn-sm" onclick="toggleListDictionary()">← 返回词库</button>
         <span style="font-size:13px;color:var(--text-secondary);"><i class="fa-solid fa-book"></i> 内置词典 · ${(currentLang||{}).name||activeLang} · ${dictWords.length}词</span>
       </div>
-      <input type="text" class="search-bar" id="search-bar" placeholder="<i class="fa-solid fa-magnifying-glass"></i> 搜索词典..." value="${escHtml(listSearchQuery)}" oninput="onSearchInput(this.value)">
+      <div class="search-wrapper">
+        <i class="fa-solid fa-magnifying-glass search-icon"></i>
+        <input type="text" class="search-bar has-icon" id="search-bar" placeholder="搜索词典..." value="${escHtml(listSearchQuery)}" oninput="onSearchInput(this.value)">
+      </div>
       <div id="list-results" class="wordlist"></div>`;
     refreshListResults();
     return;
@@ -3353,7 +3356,10 @@ function renderList() {
     return;
   }
   document.getElementById('main-content').innerHTML = `<div style="display:flex;gap:8px;align-items:center;margin-bottom:12px;">
-    <input type="text" class="search-bar" id="search-bar" style="margin-bottom:0;flex:1;" placeholder="<i class="fa-solid fa-magnifying-glass"></i> 搜索单词或中文..." value="${escHtml(listSearchQuery)}" oninput="onSearchInput(this.value)">
+    <div class="search-wrapper" style="flex:1;">
+      <i class="fa-solid fa-magnifying-glass search-icon"></i>
+      <input type="text" class="search-bar has-icon" id="search-bar" placeholder="搜索单词或中文..." value="${escHtml(listSearchQuery)}" oninput="onSearchInput(this.value)">
+    </div>
     <button class="btn btn-ghost btn-sm" onclick="toggleListDictionary()" title="浏览内置词典"><i class="fa-solid fa-book"></i></button>
   </div><div id="list-results" class="wordlist"></div>`;
   refreshListResults();
