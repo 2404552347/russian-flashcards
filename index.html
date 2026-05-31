@@ -4,6 +4,15 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0, user-scalable=yes, viewport-fit=cover">
 <title>多语言单词闪卡</title>
+<!-- PWA -->
+<link rel="manifest" href="manifest.json">
+<meta name="theme-color" content="#00BC71">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="闪卡">
+<link rel="apple-touch-icon" href="icon-192.png">
+<link rel="icon" type="image/png" sizes="192x192" href="icon-192.png">
+<!-- End PWA -->
 <script src="https://cdn.jsdelivr.net/npm/mammoth@1.6.0/mammoth.browser.min.js"></script>
 	<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
 	<link rel="stylesheet" href="css/style.css">
@@ -120,6 +129,9 @@
     <button class="nav-item" id="nav-stats" onclick="setMode('stats')">
       <span class="nav-icon"><i class="fa-solid fa-chart-bar"></i></span>统计
     </button>
+    <button class="nav-item" id="nav-game" onclick="setMode('game')">
+      <span class="nav-icon"><i class="fa-solid fa-puzzle-piece"></i></span>记忆游戏
+    </button>
   </div>
 
   <div class="toast-container" id="toast-container"></div>
@@ -132,6 +144,10 @@
     <div class="settings-row">
       <div><label>每日目标</label><div class="setting-desc">每天需要复习的单词数</div></div>
       <input type="number" class="setting-input" id="setting-daily-goal" min="5" max="200" value="20" onchange="updateDailyGoal(this.value)">
+    </div>
+    <div class="settings-row">
+      <div><label>每日新词数</label><div class="setting-desc">每天学习的新单词数量</div></div>
+      <input type="number" class="setting-input" id="setting-new-words" min="5" max="30" value="10" onchange="updateNewWordsPerDay(this.value)">
     </div>
     <div class="settings-row">
       <div><label>音效</label><div class="setting-desc">答题时播放音效</div></div>
@@ -174,11 +190,15 @@
       <input type="number" class="setting-input" id="setting-repeat-count" min="1" max="5" value="1" onchange="updateRepeatCount(this.value)">
     </div>
     <div class="settings-row">
-      <div><label>AI API Key</label><div class="setting-desc">用于生成例句，key 仅存在本地浏览器</div></div>
-      <input type="password" class="setting-input" id="setting-api-key" placeholder="sk-ant-..." onchange="updateApiKey(this.value)" style="font-size:12px;font-family:monospace;">
+      <div><label>数据备份</label><div class="setting-desc">导出全部数据为备份文件，可跨设备恢复</div></div>
+      <div style="display:flex;gap:8px;">
+        <button class="btn btn-outline btn-sm" onclick="exportFullBackup()"><i class="fa-solid fa-cloud-arrow-down"></i> 备份</button>
+        <button class="btn btn-outline btn-sm" onclick="document.getElementById('restore-file-input').click()"><i class="fa-solid fa-cloud-arrow-up"></i> 恢复</button>
+        <input type="file" id="restore-file-input" accept=".json" onchange="importFullBackup(event)" style="display:none;">
+      </div>
     </div>
     <div class="settings-row">
-      <button class="btn btn-outline btn-sm" onclick="exportWords()" style="flex:1;margin-right:8px;"><i class="fa-solid fa-file-export"></i> 导出全部</button>
+      <button class="btn btn-outline btn-sm" onclick="exportWords()" style="flex:1;margin-right:8px;"><i class="fa-solid fa-file-export"></i> 导出单词</button>
       <button class="btn btn-outline btn-sm" onclick="exportStarredWords()" style="flex:1;margin-left:8px;"><i class="fa-solid fa-star"></i> 导出收藏</button>
     </div>
     <div class="settings-row" style="border:none;padding-top:12px;">
@@ -226,7 +246,7 @@
         </div>
         <div style="max-height: 280px; overflow-y: auto;">
           <table class="preview-table">
-            <thead><tr><th>单词</th><th>音标</th><th>中文</th><th>词性</th><th>例句</th></tr></thead>
+            <thead><tr><th>单词</th><th>音标</th><th>中文</th><th>词性</th></tr></thead>
             <tbody id="preview-tbody"></tbody>
           </table>
         </div>
@@ -251,7 +271,8 @@
       <div class="form-group"><label>音标</label><input type="text" id="edit-tr" placeholder="音标"></div>
       <div class="form-group"><label>中文</label><input type="text" id="edit-zh" placeholder="中文释义"></div>
       <div class="form-group"><label>词性</label><input type="text" id="edit-pos" placeholder="词性"></div>
-      <div class="form-group"><label>例句</label><div style="display:flex;gap:8px;"><input type="text" id="edit-example" placeholder="例句（可手动输入或AI生成）" style="flex:1;"><button class="btn btn-outline btn-sm" id="btn-gen-example-modal" onclick="generateExampleInModal()" title="AI 生成例句"><i class="fa-solid fa-wand-magic-sparkles"></i></button></div></div>
+      <div class="form-group"><label>例句（俄语）</label><input type="text" id="edit-example" placeholder="俄语例句"></div>
+      <div class="form-group"><label>例句（中文）</label><input type="text" id="edit-exampleZh" placeholder="中文翻译"></div>
     </div>
     <div class="modal-footer">
       <button class="btn btn-ghost" onclick="closeEditModal()">取消</button>

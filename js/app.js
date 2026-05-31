@@ -129,6 +129,7 @@ function logoutAccount() {
   userLanguages = []; WORDS = []; srsData = {}; activeLang = 'ru';
   activeFolderId = null; folders = [];
   flashcardIndex = 0; flashcardFilter = 'all'; flashcardPool = [];
+  clearDailySession();
   quizWords = []; quizIndex = 0; quizAnswered = false; listSearchQuery = '';
   document.getElementById('main-content').innerHTML = '';
   document.getElementById('network-info').style.display = 'none';
@@ -211,7 +212,13 @@ function renderAccountList() {
   const list = document.getElementById('account-list');
   const entries = Object.entries(accounts);
   if (entries.length === 0) {
-    list.innerHTML = '<div class="account-list-label">暂无账户，请注册</div>';
+    list.innerHTML = '<div class="account-list-label">暂无账户，请注册</div>' +
+      '<div style="margin-top:12px;padding:10px 12px;background:var(--primary-light);border-radius:var(--radius-sm);font-size:13px;color:var(--text-secondary);">' +
+      '<i class="fa-solid fa-circle-info"></i> 从其他设备备份过数据？' +
+      '<button class="btn btn-outline btn-sm" style="margin-top:8px;width:100%;" onclick="document.getElementById(\'restore-auth-input\').click()">' +
+      '<i class="fa-solid fa-cloud-arrow-up"></i> 从备份文件恢复</button>' +
+      '<input type="file" id="restore-auth-input" accept=".json" onchange="importFullBackup(event)" style="display:none;">' +
+      '</div>';
     return;
   }
   list.innerHTML =
@@ -294,6 +301,11 @@ async function detectLocalIP() {
 
 function enterApp(username) {
   try {
+    // Register PWA service worker
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.register('sw.js').catch(() => {});
+    }
+
     document.getElementById('current-user').textContent = username;
     showAppScreen();
     applyTheme();
@@ -312,6 +324,12 @@ function enterApp(username) {
     dailyGoal = streakData.dailyGoal || 20;
     updateStreakUI();
     loadStarred();
+    newWordsPerDay = parseInt(localStorage.getItem(getStorageKey('new_words_per_day'))) || 10;
+    cleanupOldSessions();
+    // Restore today's session if one exists
+    if (restoreSession()) {
+      // Session restored - will show resume option when entering flashcard mode
+    }
     let langs = loadLangsFromStorage();
     if (!langs) {
       userLanguages = Object.entries(DEFAULT_DECKS).map(([code, meta], i) => ({
@@ -324,7 +342,7 @@ function enterApp(username) {
         saveFoldersToStorage(code, [df]);
         const deck = words.map(w => ({
           id: crypto.randomUUID ? crypto.randomUUID() : 'id-' + Date.now() + '-' + Math.random().toString(36).substr(2, 9),
-          ru: w[0], tr: w[1] || '', zh: w[2], pos: w[3] || '', example: ''
+          ru: w[0], tr: w[1] || '', zh: w[2], pos: w[3] || ''
         }));
         saveDeckToStorage(code, deck, df.id);
         saveSRSToStorage(code, {}, df.id);
@@ -381,16 +399,16 @@ function migrateLangToFolders(lang) {
   return [defaultFolder];
 }
 
-function insertWordLocal(word, tr, zh, pos, example) {
+function insertWordLocal(word, tr, zh, pos) {
   const id = (crypto.randomUUID) ? crypto.randomUUID() : 'id-' + Date.now() + '-' + Math.random().toString(36).substr(2, 9);
-  WORDS.push({ id, ru: word, tr: tr || '', zh, pos: pos || '', example: example || '' });
+  WORDS.push({ id, ru: word, tr: tr || '', zh, pos: pos || '', example: '', exampleZh: '' });
   saveDeck();
   return id;
 }
 
-function updateWordLocal(wordId, word, tr, zh, pos, example) {
+function updateWordLocal(wordId, word, tr, zh, pos, example, exampleZh) {
   const w = WORDS.find(x => x.id === wordId);
-  if (w) { w.ru = word; w.tr = tr; w.zh = zh; w.pos = pos; w.example = example !== undefined ? example : w.example; saveDeck(); }
+  if (w) { w.ru = word; w.tr = tr; w.zh = zh; w.pos = pos; w.example = example || ''; w.exampleZh = exampleZh || ''; saveDeck(); }
 }
 
 function deleteWordLocal(wordId) {
@@ -1737,6 +1755,28 @@ let listenLoopMode = 'folder'; // 'folder' | 'next'
 let listenRepeatRemaining = 0, listenTimeout = null;
 let listenTimerDuration = 0, listenTimerRemaining = 0, listenTimerInterval = null; // timer in seconds
 
+
+// Daily Session State
+let sessionActive = false;
+let sessionQueue = [];             // dynamic queue: words reinsert at different positions based on performance
+let sessionCompletedWords = [];    // word IDs mastered this session
+let sessionCorrectFirstTry = [];   // word IDs correct on first attempt
+let sessionTotalAttempts = 0;
+let sessionStartedAt = null;
+let sessionWordAttempts = {};      // wordId -> attempt count (across all appearances)
+let sessionMode = false;           // true = session mode, false = old browse mode
+const SESSION_MAX_ATTEMPTS = 5;    // force-master a word after this many attempts to prevent infinite loops
+
+// ── Memory Game State ─────────────────────────────
+let memoryCards = [];
+let memoryFlippedIndices = [];
+let memoryMatchedPairs = 0;
+let memoryMoves = 0;
+let memoryTimerSec = 0;
+let memoryTimerInterval = null;
+let memoryLocked = false;
+let newWordsPerDay = 10;
+
 // ========================================================
 //  UTILS
 // ========================================================
@@ -1744,6 +1784,76 @@ function todayStr() { return new Date().toISOString().slice(0, 10); }
 function showLoading(on) { document.getElementById('loading-overlay').style.display = on ? 'flex' : 'none'; }
 function shuffleArr(arr) { const a = [...arr]; for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; } return a; }
 function escHtml(s) { const d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
+
+// ── Traditional → Simplified Chinese converter ─────────
+const TS_MAP = {
+  '個':'个','們':'们','這':'这','時':'时','會':'会','說':'说','來':'来','對':'对',
+  '學':'学','開':'开','關':'关','門':'门','頭':'头','為':'为','嗎':'吗','體':'体',
+  '國':'国','書':'书','長':'长','見':'见','過':'过','後':'后','車':'车','裡':'里',
+  '東':'东','麼':'么','電':'电','氣':'气','動':'动','現':'现','實':'实','點':'点',
+  '當':'当','發':'发','還':'还','從':'从','種':'种','沒':'没','進':'进','經':'经',
+  '樣':'样','間':'间','將':'将','應':'应','給':'给','機':'机','話':'话','問':'问',
+  '聽':'听','寫':'写','買':'买','賣':'卖','請':'请','讓':'让','愛':'爱','覺':'觉',
+  '變':'变','聲':'声','邊':'边','馬':'马','魚':'鱼','鳥':'鸟','飯':'饭','錢':'钱',
+  '語':'语','讀':'读','誰':'谁','視':'视','覺':'觉','記':'记','該':'该','場':'场',
+  '員':'员','師':'师','業':'业','義':'义','樂':'乐','戲':'戏','醫':'医','藥':'药',
+  '舊':'旧','處':'处','號':'号','術':'术','衛':'卫','裝':'装','觀':'观','計':'计',
+  '設':'设','識':'识','許':'许','訴':'诉','試':'试','詩':'诗','誠':'诚','謝':'谢',
+  '講':'讲','論':'论','議':'议','證':'证','護':'护','變':'变','爭':'争','權':'权',
+  '紅':'红','綠':'绿','藍':'蓝','萬':'万','數':'数','圖':'图','團':'团','報':'报',
+  '紙':'纸','線':'线','網':'网','總':'总','統':'统','結':'结','約':'约','級':'级',
+  '組':'组','織':'织','終':'终','緊':'紧','續':'续','熱':'热','導':'导','難':'难',
+  '風':'风','飛':'飞','飲':'饮','館':'馆','飯':'饭','飽':'饱','餓':'饿','歡':'欢',
+  '歲':'岁','幾':'几','歲':'岁','歷':'历','嚴':'严','帶':'带','幫':'帮','幹':'干',
+  '塊':'块','壞':'坏','遠':'远','近':'近','運':'运','連':'连','週':'周','號':'号',
+  '條':'条','張':'张','陽':'阳','陰':'阴','雙':'双','隻':'只','靈':'灵','煙':'烟',
+  '夠':'够','壓':'压','夠':'够','參':'参','備':'备','單':'单','傳':'传','傷':'伤',
+  '優':'优','價':'价','劉':'刘','劃':'划','則':'则','剛':'刚','劇':'剧','劃':'划',
+  '劍':'剑','勵':'励','勢':'势','廳':'厅','厭':'厌','縣':'县','嘆':'叹','夢':'梦',
+  '夠':'够','奮':'奋','婦':'妇','孫':'孙','寧':'宁','對':'对','歲':'岁','島':'岛',
+  '師':'师','幫':'帮','幹':'干','廟':'庙','廠':'厂','彈':'弹','復':'复','徵':'征',
+  '態':'态','慘':'惨','慮':'虑','憑':'凭','憲':'宪','應':'应','懷':'怀','懼':'惧',
+  '戰':'战','戲':'戏','戶':'户','掃':'扫','掛':'挂','採':'采','換':'换','揚':'扬',
+  '揮':'挥','損':'损','搶':'抢','搖':'摇','敵':'敌','數':'数','整':'整','斷':'断',
+  '時':'时','曬':'晒','書':'书','會':'会','條':'条','業':'业','極':'极','構':'构',
+  '標':'标','樣':'样','樹':'树','橋':'桥','機':'机','歷':'历','殺':'杀','氣':'气',
+  '沒':'没','決':'决','況':'况','滿':'满','漸':'渐','滅':'灭','準':'准','煙':'烟',
+  '熱':'热','爭':'争','爾':'尔','牆':'墙','獨':'独','獲':'获','環':'环','現':'现',
+  '當':'当','畫':'画','異':'异','發':'发','盡':'尽','監':'监','盤':'盘','眾':'众',
+  '睜':'睁','瞭':'了','確':'确','碼':'码','礎':'础','禮':'礼','窮':'穷','節':'节',
+  '範':'范','箱':'箱','範':'范','築':'筑','簽':'签','簡':'简','類':'类','糧':'粮',
+  '紀':'纪','約':'约','納':'纳','純':'纯','紙':'纸','級':'级','組':'组','終':'终',
+  '結':'结','絕':'绝','統':'统','絲':'丝','經':'经','綠':'绿','網':'网','緊':'紧',
+  '線':'线','編':'编','緣':'缘','織':'织','績':'绩','繼':'继','續':'续','罰':'罚',
+  '習':'习','聯':'联','聲':'声','膽':'胆','臉':'脸','舉':'举','舊':'旧','臺':'台',
+  '與':'与','興':'兴','萬':'万','葉':'叶','處':'处','號':'号','衛':'卫','衝':'冲',
+  '術':'术','複':'复','規':'规','視':'视','親':'亲','覽':'览','觀':'观','計':'计',
+  '訂':'订','認':'认','記':'记','許':'许','設':'设','訴':'诉','評':'评','詞':'词',
+  '試':'试','詩':'诗','話':'话','該':'该','詳':'详','語':'语','誤':'误','說':'说',
+  '請':'请','論':'论','諸':'诸','謀':'谋','諷':'讽','講':'讲','證':'证','識':'识',
+  '護':'护','讀':'读','變':'变','讓':'让','豐':'丰','財':'财','貨':'货','責':'责',
+  '費':'费','資':'资','賓':'宾','賞':'赏','賢':'贤','賴':'赖','購':'购','賣':'卖',
+  '質':'质','賞':'赏','賴':'赖','賭':'赌','贊':'赞','贏':'赢','走':'走','趙':'赵',
+  '趕':'赶','起':'起','超':'超','越':'越','路':'路','跳':'跳','跟':'跟','跨':'跨',
+  '較':'较','載':'载','輕':'轻','輿':'舆','轉':'转','辦':'办','農':'农','運':'运',
+  '遠':'远','適':'适','遲':'迟','遷':'迁','遺':'遗','選':'选','還':'还','鄰':'邻',
+  '醫':'医','釋':'释','鐵':'铁','錢':'钱','鋼':'钢','錄':'录','鏡':'镜','長':'长',
+  '門':'门','間':'间','開':'开','關':'关','隊':'队','陽':'阳','陰':'阴','際':'际',
+  '隨':'随','險':'险','雖':'虽','雙':'双','離':'离','難':'难','雲':'云','電':'电',
+  '靈':'灵','靜':'静','頁':'页','頂':'顶','項':'项','順':'顺','須':'须','預':'预',
+  '頓':'顿','領':'领','頭':'头','題':'题','額':'额','願':'愿','類':'类','風':'风',
+  '飛':'飞','養':'养','馬':'马','驚':'惊','魚':'鱼','鳥':'鸟','麗':'丽','黃':'黄',
+  '點':'点','齊':'齐'
+};
+
+function toSimplified(text) {
+  if (!text) return text;
+  let result = '';
+  for (const ch of text) {
+    result += TS_MAP[ch] || ch;
+  }
+  return result;
+}
 
 // ========================================================
 //  PROFICIENCY-BASED SRS (墨墨 style)
@@ -1830,6 +1940,99 @@ function updateStats() {
 }
 
 // ========================================================
+// ========================================================
+//  DAILY SESSION STORAGE
+// ========================================================
+function getSessionKey() {
+  try { return getStorageKey('session_' + todayStr()); }
+  catch(e) { return null; }
+}
+function getDailyWordsKey() {
+  try { return getStorageKey('daily_words_' + todayStr()); }
+  catch(e) { return null; }
+}
+
+function loadSession() {
+  try {
+    const key = getSessionKey();
+    if (!key) return null;
+    const raw = localStorage.getItem(key);
+    return raw ? JSON.parse(raw) : null;
+  } catch(e) { return null; }
+}
+
+function saveDailySession() {
+  const key = getSessionKey();
+  if (!key) return;
+  const data = {
+    date: todayStr(),
+    queue: sessionQueue,
+    completedWords: sessionCompletedWords,
+    correctFirstTry: sessionCorrectFirstTry,
+    totalAttempts: sessionTotalAttempts,
+    startedAt: sessionStartedAt,
+    wordAttempts: sessionWordAttempts,
+    newWordsTarget: newWordsPerDay,
+    status: 'active'
+  };
+  localStorage.setItem(key, JSON.stringify(data));
+}
+
+function clearDailySession() {
+  const key = getSessionKey();
+  if (key) localStorage.removeItem(key);
+  sessionActive = false;
+  sessionQueue = [];
+  sessionCompletedWords = [];
+  sessionCorrectFirstTry = [];
+  sessionTotalAttempts = 0;
+  sessionStartedAt = null;
+  sessionWordAttempts = {};
+}
+
+function restoreSession() {
+  const data = loadSession();
+  if (!data || data.status === 'completed') return false;
+  // Support both new format (queue) and old format (mainPool/wrongPool)
+  if (data.queue) {
+    sessionQueue = data.queue;
+  } else if (data.mainPool) {
+    // Migrate old round-based format: merge mainPool + wrongPool into single queue
+    sessionQueue = [...(data.mainPool || []), ...(data.wrongPool || [])];
+  } else {
+    sessionQueue = [];
+  }
+  sessionCompletedWords = data.completedWords || [];
+  sessionCorrectFirstTry = data.correctFirstTry || [];
+  sessionTotalAttempts = data.totalAttempts || 0;
+  sessionStartedAt = data.startedAt || new Date().toISOString();
+  sessionWordAttempts = data.wordAttempts || {};
+  newWordsPerDay = data.newWordsTarget || 10;
+  sessionActive = true;
+  sessionMode = true;
+  return true;
+}
+
+// Clean up old session data (older than 7 days)
+function cleanupOldSessions() {
+  try {
+    const session = getCurrentSession();
+    if (!session || !session.accountId) return;
+    const prefix = 'flashcards_' + session.accountId + '_session_';
+    const keys = Object.keys(localStorage);
+    const cutoff = new Date();
+    cutoff.setDate(cutoff.getDate() - 7);
+    for (const key of keys) {
+      if (key.startsWith(prefix)) {
+        const dateStr = key.replace(prefix, '');
+        if (dateStr < cutoff.toISOString().slice(0, 10)) {
+          localStorage.removeItem(key);
+        }
+      }
+    }
+  } catch(e) {}
+}
+
 //  SPEECH
 // ========================================================
 let _lastUtterance = null;
@@ -1849,94 +2052,121 @@ function speakWord(text) {
 }
 if ('speechSynthesis' in window) speechSynthesis.getVoices();
 
-// Track ongoing generation to prevent double-clicks
-let _generatingExample = {};
-
-async function generateExample(wordId) {
+// ── Tatoeba Example Fetch ─────────────────────────────
+async function fetchExample(wordId) {
   const w = WORDS.find(x => x.id === wordId);
-  if (!w || _generatingExample[wordId]) return;
-
-  const apiKey = getApiKey();
-  if (!apiKey) {
-    showToast('请先在设置中填写 API Key', '');
-    openSettings();
-    return;
-  }
-
-  _generatingExample[wordId] = true;
-  showToast('<i class="fa-solid fa-spinner fa-spin"></i> 正在生成例句...', '');
-
-  const posHint = w.pos ? ` (part of speech: ${w.pos})` : '';
+  if (!w) return;
 
   try {
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 20000);
-
-    const resp = await fetch('https://api.anthropic.com/v1/messages', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-api-key': apiKey,
-        'anthropic-version': '2023-06-01',
-      },
-      body: JSON.stringify({
-        model: 'claude-3-5-haiku-latest',
-        max_tokens: 200,
-        system: 'You are a Russian language tutor. Generate natural, simple example sentences. Always respond with ONLY valid JSON, no other text.',
-        messages: [{
-          role: 'user',
-          content: `Generate one natural Russian example sentence using the word "${w.ru}" (meaning: "${w.zh}"${posHint}). Return ONLY a JSON object with keys "ru" (the Russian sentence) and "zh" (Chinese translation). Keep it simple and natural.`,
-        }],
-      }),
-      signal: controller.signal,
-    });
-
-    clearTimeout(timeout);
-
-    if (!resp.ok) {
-      const errText = await resp.text().catch(() => '');
-      if (resp.status === 401 || resp.status === 403) {
-        showToast('API Key 无效，请检查设置', '');
-      } else if (resp.status === 429) {
-        showToast('请求太频繁，请稍后再试', '');
-      } else {
-        showToast('AI 服务暂时不可用，请稍后重试', '');
-        console.error('Anthropic API error:', resp.status, errText);
-      }
-      return;
-    }
-
+    const query = encodeURIComponent(w.ru);
+    const url = 'https://api.tatoeba.org/v1/sentences?q=' + query + '&lang=rus&showtrans=all&trans:lang=cmn&sort=relevance&limit=10';
+    const resp = await fetch(url, { headers: { 'Accept': 'application/json' } });
+    if (!resp.ok) throw new Error('API error: ' + resp.status);
     const data = await resp.json();
-    const text = data?.content?.[0]?.text || '';
 
-    let parsed;
-    try {
-      const jsonMatch = text.match(/\{[\s\S]*\}/);
-      if (jsonMatch) parsed = JSON.parse(jsonMatch[0]);
-    } catch {}
-
-    if (parsed?.ru) {
-      w.example = parsed.ru;
-    } else if (text.trim()) {
-      w.example = text.trim();
-    } else {
-      showToast('生成例句失败，请重试', '');
-      return;
+    let bestRu = '', bestZh = '';
+    if (data.data && data.data.length > 0) {
+      for (const item of data.data) {
+        if (item.text.length < 5 || item.text.length > 120) continue;
+        const zhTrans = (item.translations || []).find(t => t.lang === 'cmn');
+        if (zhTrans) { bestRu = item.text; bestZh = zhTrans.text; break; }
+      }
+      // Fallback to English translation
+      if (!bestRu) {
+        for (const item of data.data) {
+          if (item.text.length < 5 || item.text.length > 120) continue;
+          const enTrans = (item.translations || []).find(t => t.lang === 'eng');
+          if (enTrans) { bestRu = item.text; bestZh = enTrans.text; break; }
+        }
+      }
     }
 
-    saveDeck();
-    showToast('<i class="fa-solid fa-check"></i> 例句已生成！', 'success');
-    renderMain();
-  } catch (e) {
-    if (e.name === 'AbortError') {
-      showToast('请求超时，请检查网络后重试', '');
+    if (bestRu) {
+      bestZh = toSimplified(bestZh);
+      w.example = bestRu; w.exampleZh = bestZh;
+      saveDeck();
+      const exampleEl = document.getElementById('word-example-' + wordId);
+      if (exampleEl) {
+        exampleEl.innerHTML = '<div class="example-text">' + escHtml(bestRu) + '</div>' +
+          (bestZh ? '<div class="example-zh">' + escHtml(bestZh) + '</div>' : '') +
+          '<button class="btn-speak-example" onclick="event.stopPropagation();speakWord(\'' + bestRu.replace(/'/g,"\\'") + '\')"><i class="fa-solid fa-volume-high"></i> 朗读</button>';
+      }
     } else {
-      showToast('网络错误，请检查连接后重试', '');
+      w._exampleFetching = false;
+      const exampleEl = document.getElementById('word-example-' + wordId);
+      if (exampleEl) exampleEl.innerHTML = '<span class="example-none"><i class="fa-solid fa-circle-info"></i> 暂无例句</span>';
     }
-    console.error('generateExample error:', e);
-  } finally {
-    delete _generatingExample[wordId];
+  } catch(e) {
+    w._exampleFetching = false;
   }
+}
+
+async function fetchExampleForQuiz(wordId) {
+  const w = WORDS.find(x => x.id === wordId);
+  if (!w) return;
+  try {
+    const query = encodeURIComponent(w.ru);
+    const url = 'https://api.tatoeba.org/v1/sentences?q=' + query + '&lang=rus&showtrans=all&trans:lang=cmn&sort=relevance&limit=10';
+    const resp = await fetch(url, { headers: { 'Accept': 'application/json' } });
+    if (!resp.ok) throw new Error('API error: ' + resp.status);
+    const data = await resp.json();
+
+    let bestRu = '', bestZh = '';
+    if (data.data && data.data.length > 0) {
+      for (const item of data.data) {
+        if (item.text.length < 5 || item.text.length > 120) continue;
+        const zhTrans = (item.translations || []).find(t => t.lang === 'cmn');
+        if (zhTrans) { bestRu = item.text; bestZh = zhTrans.text; break; }
+      }
+      if (!bestRu) {
+        for (const item of data.data) {
+          if (item.text.length < 5 || item.text.length > 120) continue;
+          const enTrans = (item.translations || []).find(t => t.lang === 'eng');
+          if (enTrans) { bestRu = item.text; bestZh = enTrans.text; break; }
+        }
+      }
+    }
+
+    if (bestRu) {
+      bestZh = toSimplified(bestZh);
+      w.example = bestRu; w.exampleZh = bestZh;
+      saveDeck();
+      // Update quiz feedback if visible
+      const fb = document.getElementById('quiz-feedback');
+      if (fb) {
+        const exampleHtml = '<div class="example-text">' + escHtml(bestRu) + '</div>' +
+          (bestZh ? '<div class="example-zh">' + escHtml(bestZh) + '</div>' : '') +
+          '<button class="btn-speak-example" onclick="event.stopPropagation();speakWord(\'' + bestRu.replace(/'/g,"\\'") + '\')" style="margin-top:6px;"><i class="fa-solid fa-volume-high"></i> 朗读</button>';
+        // Replace the loading spinner inside quiz-example with the example content
+        const loadingEl = fb.querySelector('.quiz-example .example-loading');
+        if (loadingEl && loadingEl.parentElement) {
+          loadingEl.parentElement.innerHTML = exampleHtml;
+        }
+      }
+      // Also update word-example element if present (card mode)
+      const exampleEl = document.getElementById('word-example-' + wordId);
+      if (exampleEl) {
+        exampleEl.innerHTML = '<div class="example-text">' + escHtml(bestRu) + '</div>' +
+          (bestZh ? '<div class="example-zh">' + escHtml(bestZh) + '</div>' : '') +
+          '<button class="btn-speak-example" onclick="event.stopPropagation();speakWord(\'' + bestRu.replace(/'/g,"\\'") + '\')"><i class="fa-solid fa-volume-high"></i> 朗读</button>';
+      }
+    } else {
+      w._exampleFetching = false;
+      const fb2 = document.getElementById('quiz-feedback');
+      if (fb2) {
+        const loadingEl2 = fb2.querySelector('.quiz-example .example-loading');
+        if (loadingEl2 && loadingEl2.parentElement) {
+          loadingEl2.parentElement.innerHTML = '<span class="example-none"><i class="fa-solid fa-circle-info"></i> 暂无例句</span>';
+        }
+      }
+    }
+  } catch(e) {
+    w._exampleFetching = false;
+  }
+}
+
+function escHtml(s) {
+  const d = document.createElement('div'); d.textContent = s; return d.innerHTML;
 }
 
 // ========================================================
@@ -1995,16 +2225,113 @@ function renderAll() {
 //  NAVIGATION
 // ========================================================
 function setMode(mode) {
+  if (memoryTimerInterval) { clearInterval(memoryTimerInterval); memoryTimerInterval = null; }
   currentMode = mode;
   document.querySelectorAll('.bottom-nav .nav-item').forEach(b => b.classList.remove('active'));
   const navEl = document.getElementById('nav-' + mode);
   if (navEl) navEl.classList.add('active');
-  flashcardIndex = 0; flashcardFilter = 'all'; flashcardPool = [];
   listSearchQuery = '';
+  // If entering flashcard mode, check for active session
+  if (mode === 'flashcard') {
+    if (sessionActive) {
+      // Session is in progress — continue, keep flashcardIndex
+      sessionMode = true;
+    } else if (loadSession() && loadSession().status === 'active') {
+      // Restore interrupted session
+      restoreSession();
+      sessionMode = true;
+    } else {
+      // Default to session mode
+      sessionMode = true;
+      flashcardIndex = 0; flashcardFilter = 'all'; flashcardPool = [];
+    }
+  } else {
+    flashcardIndex = 0; flashcardFilter = 'all'; flashcardPool = [];
+  }
   renderMain();
 }
 
 // No longer needed — nav is in bottom-nav
+
+// ========================================================
+//  DAILY SESSION WORD SELECTION
+// ========================================================
+
+// Simple seed-based shuffle for daily variety
+function shuffleWithSeed(arr, seed) {
+  const a = [...arr];
+  let s = seed;
+  for (let i = a.length - 1; i > 0; i--) {
+    s = (s * 16807 + 0) % 2147483647;
+    const j = s % (i + 1);
+    [a[i], a[j]] = [a[j], a[i]];
+  }
+  return a;
+}
+
+function getDateSeed() {
+  const d = todayStr().replace(/-/g, '');
+  return parseInt(d, 10);
+}
+
+function buildDailySessionPool(targetCount) {
+  // Collect candidates by category
+  const dueWords = WORDS.filter(w => isDue(w.id));
+  const learningWords = WORDS.filter(w => isLearning(w.id) && !isDue(w.id));
+  const newWords = WORDS.filter(w => isNew(w.id));
+  const masteredWords = WORDS.filter(w => isMastered(w.id));
+
+  const seed = getDateSeed();
+
+  // Shuffle each pool with date seed
+  const shuffledDue = shuffleWithSeed(dueWords, seed);
+  const shuffledLearning = shuffleWithSeed(learningWords, seed + 1);
+  const shuffledNew = shuffleWithSeed(newWords, seed + 2);
+  const shuffledMastered = shuffleWithSeed(masteredWords, seed + 3);
+
+  // Cap new words per day
+  const newQuota = Math.min(newWordsPerDay, shuffledNew.length);
+
+  const pool = [];
+
+  // 1. All due words (highest priority)
+  for (const w of shuffledDue) pool.push(w.id);
+
+  // 2. Learning words up to target - newQuota
+  const remainingForLearning = Math.max(0, targetCount - pool.length - newQuota);
+  for (let i = 0; i < Math.min(remainingForLearning, shuffledLearning.length); i++) {
+    pool.push(shuffledLearning[i].id);
+  }
+
+  // 3. New words up to newWordsPerDay
+  for (let i = 0; i < newQuota; i++) {
+    pool.push(shuffledNew[i].id);
+  }
+
+  // 4. Pad with mastered words if not enough
+  const remaining = targetCount - pool.length;
+  for (let i = 0; i < Math.min(remaining, shuffledMastered.length); i++) {
+    pool.push(shuffledMastered[i].id);
+  }
+
+  // If still not enough, use all words
+  if (pool.length < Math.min(targetCount, WORDS.length)) {
+    const allIds = new Set(pool);
+    for (const w of WORDS) {
+      if (!allIds.has(w.id)) {
+        pool.push(w.id);
+        if (pool.length >= targetCount) break;
+      }
+    }
+  }
+
+  return pool;
+}
+
+function updateNewWordsPerDay(val) {
+  newWordsPerDay = Math.max(5, Math.min(30, parseInt(val) || 10));
+  try { localStorage.setItem(getStorageKey('new_words_per_day'), newWordsPerDay); } catch(e) {}
+}
 
 // ========================================================
 //  FLASHCARD RENDER
@@ -2024,6 +2351,295 @@ function applyFilter() {
 }
 
 function setFlashcardFilter(f) { flashcardFilter = f; flashcardIndex = 0; applyFilter(); renderFlashcard(); }
+
+// ========================================================
+//  DAILY SESSION UI
+// ========================================================
+
+function renderSessionStart() {
+  if (WORDS.length === 0) {
+    document.getElementById('main-content').innerHTML = '<div class="empty-state"><div style="font-size:40px;margin-bottom:12px;"><i class="fa-solid fa-inbox"></i></div><div>还没有单词，点击「导入」添加单词</div></div>';
+    return;
+  }
+
+  const targetCount = dailyGoal;
+  const pool = buildDailySessionPool(targetCount);
+  const newCount = pool.filter(id => isNew(id)).length;
+  const dueCount = pool.filter(id => isDue(id)).length;
+  const learningCount = pool.filter(id => isLearning(id) && !isDue(id)).length;
+  const masteredCount = pool.filter(id => isMastered(id)).length;
+  const streakData = loadStreak();
+
+  // Cache today's pool
+  try { localStorage.setItem(getDailyWordsKey(), JSON.stringify(pool)); } catch(e) {}
+
+  document.getElementById('main-content').innerHTML = `<div class="session-start-screen">
+    <div class="session-start-header">
+      <div class="session-start-icon"><i class="fa-solid fa-bolt"></i></div>
+      <h2>今日复习</h2>
+      <p class="session-start-subtitle">${todayStr()} · ${['日','一','二','三','四','五','六'][new Date().getDay()]}</p>
+    </div>
+
+    <div class="session-start-stats">
+      <div class="sss-item sss-due"><span class="sss-num">${dueCount}</span><span class="sss-label">待复习</span></div>
+      <div class="sss-item sss-learning"><span class="sss-num">${learningCount}</span><span class="sss-label">学习中</span></div>
+      <div class="sss-item sss-new"><span class="sss-num">${newCount}</span><span class="sss-label">新词</span></div>
+      <div class="sss-item sss-mastered"><span class="sss-num">${masteredCount}</span><span class="sss-label">复习巩固</span></div>
+    </div>
+
+    <div class="session-start-streak">
+      <i class="fa-solid fa-fire"></i> 连续打卡 <strong>${streakData.currentStreak || 0}</strong> 天 · 今日已学 <strong>${streakData.todayCount || 0}</strong> 词
+    </div>
+
+    <div class="session-start-actions">
+      <button class="btn btn-primary btn-lg session-start-btn" onclick="startDailySession()">
+        <i class="fa-solid fa-play"></i> 开始复习 (${pool.length} 词)
+      </button>
+      <button class="btn btn-ghost btn-sm" onclick="startBrowseMode()">
+        浏览全部单词
+      </button>
+    </div>
+  </div>`;
+}
+
+function startDailySession() {
+  const targetCount = dailyGoal;
+  let pool;
+  try {
+    const cached = localStorage.getItem(getDailyWordsKey());
+    pool = cached ? JSON.parse(cached) : null;
+  } catch(e) { pool = null; }
+  if (!pool || pool.length === 0) {
+    pool = buildDailySessionPool(targetCount);
+  }
+
+  sessionQueue = [...pool];
+  sessionCompletedWords = [];
+  sessionCorrectFirstTry = [];
+  sessionTotalAttempts = 0;
+  sessionStartedAt = new Date().toISOString();
+  sessionWordAttempts = {};
+  sessionActive = true;
+  sessionMode = true;
+  flashcardIndex = 0;
+  saveDailySession();
+  renderSessionCard();
+  if (flashcardAutoSpeak) autoSpeakCurrent();
+}
+
+function startBrowseMode() {
+  sessionMode = false;
+  sessionActive = false;
+  applyFilter();
+  renderFlashcard();
+}
+
+function renderSessionCard() {
+  if (sessionQueue.length === 0) {
+    completeSession();
+    return;
+  }
+
+  if (flashcardIndex >= sessionQueue.length) flashcardIndex = 0;
+  cardStage = 1;
+  const wordId = sessionQueue[flashcardIndex];
+  const w = WORDS.find(x => x.id === wordId);
+  if (!w) {
+    // Word might have been deleted
+    sessionQueue.splice(flashcardIndex, 1);
+    if (flashcardIndex >= sessionQueue.length) flashcardIndex = 0;
+    saveDailySession();
+    if (sessionQueue.length === 0) { completeSession(); return; }
+    renderSessionCard();
+    return;
+  }
+
+  const mastered = sessionCompletedWords.length;
+  const inQueue = sessionQueue.length;
+  const totalUnique = mastered + inQueue;
+  const progressPct = totalUnique > 0 ? Math.round(mastered / totalUnique * 100) : 0;
+  const label = getSRSLabel(w.id), badge = getSRSBadgeClass(w.id);
+  const starredClass = isStarred(w.id) ? 'is-starred' : '';
+  const attempts = sessionWordAttempts[w.id] || 0;
+
+  document.getElementById('main-content').innerHTML = `<div class="flashcard-container card-enter">
+    <div class="session-progress">
+      <div class="session-progress-top">
+        <span><i class="fa-solid fa-check-circle"></i> 已掌握 <strong>${mastered}</strong> 词</span>
+        <span><i class="fa-solid fa-layer-group"></i> 队列 <strong>${inQueue}</strong> 词</span>
+      </div>
+      <div class="session-progress-bar">
+        <div class="session-progress-fill" style="width:${progressPct}%"></div>
+      </div>
+    </div>
+
+    <div class="word-progress">${flashcardIndex+1} / ${inQueue} · <span class="card-srs-badge ${badge}">${label}</span>${attempts > 1 ? ' · <span class="retry-indicator">第' + attempts + '次</span>' : ''}</div>
+
+    <div class="card-stage" id="card-stage">
+      <button class="star-btn-card ${starredClass}" id="star-btn" onclick="event.stopPropagation();toggleStar('${w.id}');renderStarBtn()" title="收藏"><i class="fa-solid fa-star"></i></button>
+      <button class="speak-btn-card" onclick="event.stopPropagation();speakWord('${w.ru.replace(/'/g,"\\'")}')" title="发音"><i class="fa-solid fa-volume-high"></i></button>
+
+      <div class="russian-word">${escHtml(w.ru)}</div>
+      <div class="russian-tr">${escHtml(w.tr||'')}</div>
+
+      <div class="answer-reveal answer-hidden" id="answer-reveal">
+        <div class="chinese-def">${escHtml(w.zh)}</div>
+        <div class="word-pos">${escHtml(w.pos||'')}</div>
+        <div class="word-example" id="word-example-${w.id}">
+          ${w.example ? '<div class="example-text">' + escHtml(w.example) + '</div>' + (w.exampleZh ? '<div class="example-zh">' + escHtml(toSimplified(w.exampleZh)) + '</div>' : '') + '<button class="btn-speak-example" onclick="event.stopPropagation();speakWord(\'' + w.example.replace(/'/g,"\\'") + '\')\" style=\"margin-top:8px;\"><i class=\"fa-solid fa-volume-high\"></i> 朗读</button>' : '<button class="btn-generate-example" id="btn-gen-' + w.id + '" onclick="event.stopPropagation();fetchExample(\'' + w.id + '\')\" style=\"margin-top:6px;\"><i class=\"fa-solid fa-robot\"></i> 生成例句</button>'}
+        </div>
+      </div>
+    </div>
+
+    <div class="stage-actions" id="stage-actions">
+      <button class="stage-btn stage-btn-dontknow" onclick="handleStage1('dontknow')">不认识</button>
+      <button class="stage-btn stage-btn-unsure" onclick="handleStage1('unsure')">模糊</button>
+      <button class="stage-btn stage-btn-know" onclick="handleStage1('know')">认识</button>
+    </div>
+
+    <div class="stage-nav">
+      <button class="btn btn-ghost" onclick="prevCard()">←</button>
+      <button class="btn btn-ghost" onclick="sessionShuffleCard()"><i class="fa-solid fa-shuffle"></i></button>
+      <button class="btn btn-ghost" onclick="nextCard()">→</button>
+    </div>
+    <div style="text-align:center;margin-top:4px;">
+      <button class="btn btn-ghost btn-sm" onclick="finishSessionEarly()" style="font-size:11px;color:var(--text-muted);">结束本次复习</button>
+    </div>
+  </div>`;
+
+  // Auto-fetch example
+  if (!w.example && !w._exampleFetching) {
+    w._exampleFetching = true;
+    fetchExample(w.id);
+  }
+}
+
+function completeSession() {
+  sessionActive = false;
+  const duration = sessionStartedAt ? Math.round((new Date() - new Date(sessionStartedAt)) / 1000) : 0;
+  const minutes = Math.floor(duration / 60);
+  const seconds = duration % 60;
+  const timeStr = minutes > 0 ? minutes + '分' + seconds + '秒' : seconds + '秒';
+  const mastered = sessionCompletedWords.length;
+  const remaining = sessionQueue.length;
+  const totalUnique = mastered + remaining;
+  const correctPct = totalUnique > 0 ? Math.round(mastered / totalUnique * 100) : 0;
+  const streakData = loadStreak();
+
+  // Find hardest words (took most attempts)
+  const hardestEntries = Object.entries(sessionWordAttempts)
+    .filter(([, count]) => count >= 2)
+    .sort(([, a], [, b]) => b - a)
+    .slice(0, 3)
+    .map(([id, count]) => {
+      const w = WORDS.find(x => x.id === id);
+      return w ? { word: w.ru, attempts: count } : null;
+    })
+    .filter(Boolean);
+
+  // Save session as completed
+  const data = loadSession();
+  if (data) {
+    data.status = 'completed';
+    data.completedAt = new Date().toISOString();
+    // Include remaining queue words so they can be retried
+    data.remainingQueue = sessionQueue;
+    try { localStorage.setItem(getSessionKey(), JSON.stringify(data)); } catch(e) {}
+  }
+
+  document.getElementById('main-content').innerHTML = `<div class="session-complete-screen">
+    <div class="session-complete-header">
+      <div class="session-complete-icon"><i class="fa-solid fa-trophy"></i></div>
+      <h2>今日复习完成！</h2>
+      <p class="session-complete-subtitle">
+        ${correctPct >= 90 ? '太棒了，几乎全对！' : correctPct >= 70 ? '做得不错，继续保持！' : '继续加油，你可以的！'}
+      </p>
+    </div>
+
+    <div class="session-complete-stats">
+      <div class="scs-card">
+        <div class="scs-num">${totalUnique}</div>
+        <div class="scs-label">已复习</div>
+      </div>
+      <div class="scs-card">
+        <div class="scs-num">${correctPct}%</div>
+        <div class="scs-label">正确率</div>
+      </div>
+      <div class="scs-card">
+        <div class="scs-num">${sessionTotalAttempts}</div>
+        <div class="scs-label">总答题</div>
+      </div>
+      <div class="scs-card">
+        <div class="scs-num">${timeStr}</div>
+        <div class="scs-label">用时</div>
+      </div>
+    </div>
+
+    <div class="session-complete-streak">
+      <i class="fa-solid fa-fire"></i> 连续打卡 <strong>${streakData.currentStreak || 0}</strong> 天
+    </div>
+
+    ${hardestEntries.length > 0 ? `<div class="session-complete-hardest">
+      <div class="sch-title">需要多练的单词</div>
+      ${hardestEntries.map(h => '<div class="sch-word"><span>' + escHtml(h.word) + '</span><span class="sch-attempts">' + h.attempts + ' 次</span></div>').join('')}
+    </div>` : ''}
+
+    <div class="session-complete-actions">
+      ${remaining > 0 ? `<button class="btn btn-primary" onclick="retryRemainingWords()"><i class="fa-solid fa-arrow-rotate-right"></i> 再练未掌握 (${remaining})</button>` : ''}
+      <button class="btn btn-outline" onclick="startDailySession()">开始新一轮</button>
+      <button class="btn btn-ghost btn-sm" onclick="startBrowseMode()">浏览全部单词</button>
+    </div>
+  </div>`;
+
+  // Launch confetti
+  setTimeout(() => {
+    const el = document.querySelector('.session-complete-icon');
+    if (el) {
+      const rect = el.getBoundingClientRect();
+      launchConfetti(rect.left + rect.width/2, rect.top + rect.height/2);
+    }
+  }, 300);
+
+  playSound('milestone');
+  updateStats();
+}
+
+// Retry words that weren't mastered (still in the queue at session end)
+function retryRemainingWords() {
+  const data = loadSession();
+  const remaining = data?.remainingQueue || sessionQueue;
+  sessionQueue = [...remaining];
+  sessionCompletedWords = [];
+  sessionCorrectFirstTry = [];
+  sessionTotalAttempts = 0;
+  sessionStartedAt = new Date().toISOString();
+  sessionWordAttempts = {};
+  sessionActive = true;
+  sessionMode = true;
+  flashcardIndex = 0;
+  saveDailySession();
+  renderSessionCard();
+  if (flashcardAutoSpeak) autoSpeakCurrent();
+}
+
+// Keep backward compatibility alias
+function retryWrongWords() { retryRemainingWords(); }
+
+function finishSessionEarly() {
+  const remaining = sessionQueue.length;
+  if (remaining > 0) {
+    if (!confirm('已掌握 ' + sessionCompletedWords.length + ' 个单词，还有 ' + remaining + ' 个未完成。\n确定要结束本次复习吗？')) return;
+  }
+  completeSession();
+}
+
+function sessionShuffleCard() {
+  if (sessionQueue.length <= 1) return;
+  flashcardIndex = Math.floor(Math.random() * sessionQueue.length);
+  cardStage = 1;
+  renderSessionCard();
+  if (flashcardAutoSpeak) autoSpeakCurrent();
+}
 
 // ── Two-Stage Card Interaction ──────────────────────
 let cardStage = 1; // 1 = question, 2 = answer revealed
@@ -2065,10 +2681,9 @@ function renderFlashcard() {
       <div class="answer-reveal answer-hidden" id="answer-reveal">
         <div class="chinese-def">${w.zh}</div>
         <div class="word-pos">${w.pos||''}</div>
-        ${w.example ? `<div class="word-example">
-          <span class="example-text"><i class="fa-solid fa-quote-left"></i> ${w.example}</span>
-          <button class="btn-speak-example" onclick="event.stopPropagation();speakWord('${w.example.replace(/'/g,"\\'").replace(/"/g,'&quot;')}')" title="朗读例句"><i class="fa-solid fa-volume-high"></i></button>
-        </div>` : `<button class="btn-generate-example" onclick="event.stopPropagation();generateExample('${w.id}')"><i class="fa-solid fa-wand-magic-sparkles"></i> AI 生成例句</button>`}
+        <div class="word-example" id="word-example-${w.id}">
+          ${w.example ? '<div class="example-text">' + escHtml(w.example) + '</div>' + (w.exampleZh ? '<div class="example-zh">' + escHtml(toSimplified(w.exampleZh)) + '</div>' : '') + '<button class="btn-speak-example" onclick="event.stopPropagation();speakWord(\'' + w.example.replace(/'/g,"\\'") + '\')\" style=\"margin-top:8px;\"><i class=\"fa-solid fa-volume-high\"></i> 朗读</button>' : '<button class="btn-generate-example" id="btn-gen-' + w.id + '" onclick="event.stopPropagation();fetchExample(\'' + w.id + '\')\" style=\"margin-top:6px;\"><i class=\"fa-solid fa-robot\"></i> 生成例句</button>'}
+        </div>
       </div>
     </div>
 
@@ -2083,22 +2698,48 @@ function renderFlashcard() {
       <button class="btn btn-ghost" onclick="shuffleCard()"><i class="fa-solid fa-shuffle"></i></button>
       <button class="btn btn-ghost" onclick="nextCard()">→</button>
     </div></div>`;
+  // Auto-fetch example if word does not have one yet
+  if (!w.example && !w._exampleFetching) {
+    w._exampleFetching = true;
+    fetchExample(w.id);
+  }
 }
 
 function renderStarBtn() {
   const btn = document.getElementById('star-btn');
   if (!btn) return;
-  const idx = flashcardPool[flashcardIndex];
-  if (idx === undefined) return;
-  const w = WORDS[idx];
+  let w;
+  if (sessionActive) {
+    const wordId = sessionQueue[flashcardIndex];
+    if (wordId === undefined) return;
+    w = WORDS.find(x => x.id === wordId);
+  } else {
+    const idx = flashcardPool[flashcardIndex];
+    if (idx === undefined) return;
+    w = WORDS[idx];
+  }
+  if (!w) return;
   if (isStarred(w.id)) { btn.classList.add('is-starred'); }
   else { btn.classList.remove('is-starred'); }
 }
 
 function handleStage1(choice) {
-  const idx = flashcardPool[flashcardIndex];
-  if (idx === undefined) return;
-  const w = WORDS[idx];
+  let wordId;
+  if (sessionActive) {
+    wordId = sessionQueue[flashcardIndex];
+  } else {
+    const idx = flashcardPool[flashcardIndex];
+    wordId = idx !== undefined ? WORDS[idx]?.id : undefined;
+  }
+  if (wordId === undefined) return;
+  const w = WORDS.find(x => x.id === wordId);
+  if (!w) return;
+
+  // Track attempts for hardest-words
+  if (sessionActive) {
+    sessionWordAttempts[wordId] = (sessionWordAttempts[wordId] || 0) + 1;
+    sessionTotalAttempts++;
+  }
 
   const reveal = document.getElementById('answer-reveal');
   const actions = document.getElementById('stage-actions');
@@ -2111,27 +2752,108 @@ function handleStage1(choice) {
     playSound('correct'); vibrate('correct');
     setSRS(w.id, updateProficiency('know', getSRS(w.id)));
     recordReview(); updateStats();
+    if (sessionActive) {
+      // Remove from queue → mastered, never comes back this session
+      sessionQueue.splice(flashcardIndex, 1);
+      sessionCompletedWords.push(w.id);
+      if (!sessionCorrectFirstTry.includes(w.id)) {
+        sessionCorrectFirstTry.push(w.id);
+      }
+      // flashcardIndex now points to next word in queue (after splice)
+      if (sessionQueue.length === 0) {
+        saveDailySession();
+        if (manualAdvance) {
+          if (actions) actions.innerHTML = '<div style="width:100%;text-align:center;font-size:16px;color:var(--primary);padding:12px;font-weight:600;">✓ 已掌握</div><button class="btn btn-primary" style="margin-top:8px;width:100%;" onclick="completeSession()">完成 →</button>';
+        } else {
+          if (actions) actions.innerHTML = '<div style="width:100%;text-align:center;font-size:16px;color:var(--primary);padding:12px;font-weight:600;">🎉 全部完成！</div>';
+          setTimeout(() => completeSession(), 800);
+        }
+        return;
+      }
+      if (flashcardIndex >= sessionQueue.length) flashcardIndex = 0;
+      saveDailySession();
+    }
     if (manualAdvance) {
-      if (actions) actions.innerHTML = '<div style="width:100%;text-align:center;font-size:16px;color:var(--primary);padding:12px;font-weight:600;"><i class="fa-solid fa-check"></i> 已掌握</div><button class="btn btn-primary" style="margin-top:8px;width:100%;" onclick="nextCard()">下一张 →</button>';
+      if (actions) actions.innerHTML = '<div style="width:100%;text-align:center;font-size:16px;color:var(--primary);padding:12px;font-weight:600;">✓ 已掌握</div><button class="btn btn-primary" style="margin-top:8px;width:100%;" onclick="advanceAfterAnswer()">下一张 →</button>';
     } else {
-      if (actions) actions.innerHTML = '<div style="width:100%;text-align:center;font-size:16px;color:var(--primary);padding:12px;font-weight:600;"><i class="fa-solid fa-check"></i> 已掌握</div>';
-      setTimeout(() => nextCard(), 600);
+      if (actions) actions.innerHTML = '<div style="width:100%;text-align:center;font-size:16px;color:var(--primary);padding:12px;font-weight:600;">✓ 已掌握</div>';
+      setTimeout(() => advanceAfterAnswer(), 600);
     }
     return;
   }
 
+  // ── unsure / dontknow ──
   if (reveal) reveal.classList.remove('answer-hidden');
   const action = choice === 'unsure' ? 'vague' : 'forgot';
   setSRS(w.id, updateProficiency(action, getSRS(w.id)));
   if (choice === 'dontknow') { playSound('wrong'); vibrate('wrong'); }
   else { playSound('flip'); }
   recordReview(); updateStats();
-  pushCurrentToEnd();
-  if (manualAdvance) {
-    if (actions) actions.innerHTML = '<div style="width:100%;text-align:center;font-size:14px;color:var(--text-muted);padding:8px;">已加入复习队列</div><button class="btn btn-primary" style="margin-top:8px;width:100%;" onclick="nextCard()">下一张 →</button>';
+
+  if (sessionActive) {
+    const tooManyAttempts = sessionWordAttempts[wordId] >= SESSION_MAX_ATTEMPTS;
+    // Remove current word from queue
+    sessionQueue.splice(flashcardIndex, 1);
+
+    if (tooManyAttempts) {
+      // Force-master: too many attempts, don't reinsert
+      sessionCompletedWords.push(wordId);
+    } else if (choice === 'dontknow') {
+      // Reinsert after 1-3 positions → word comes back very soon
+      const delay = 1 + Math.floor(Math.random() * 3);
+      const insertPos = Math.min(flashcardIndex + delay, sessionQueue.length);
+      sessionQueue.splice(insertPos, 0, wordId);
+    } else {
+      // Reinsert after 5-10 positions → word comes back after medium delay
+      const delay = 5 + Math.floor(Math.random() * 6);
+      const insertPos = Math.min(flashcardIndex + delay, sessionQueue.length);
+      sessionQueue.splice(insertPos, 0, wordId);
+    }
+
+    // flashcardIndex now points to next word after the removed one
+    if (sessionQueue.length === 0) {
+      saveDailySession();
+      if (manualAdvance) {
+        if (actions) actions.innerHTML = '<div style="width:100%;text-align:center;font-size:14px;color:var(--text-muted);padding:8px;">' + (tooManyAttempts ? '已达最大尝试次数' : '即将回归') + '</div><button class="btn btn-primary" style="margin-top:8px;width:100%;" onclick="completeSession()">完成 →</button>';
+      } else {
+        if (actions) actions.innerHTML = '<div style="width:100%;text-align:center;font-size:14px;color:var(--text-muted);padding:8px;">🎉 全部完成！</div>';
+        setTimeout(() => completeSession(), 800);
+      }
+      return;
+    }
+    if (flashcardIndex >= sessionQueue.length) flashcardIndex = 0;
+    saveDailySession();
   } else {
-    if (actions) actions.innerHTML = '<div style="width:100%;text-align:center;font-size:14px;color:var(--text-muted);padding:8px;">已加入复习队列</div>';
-    setTimeout(() => nextCard(), 800);
+    pushCurrentToEnd();
+  }
+
+  const reinsertMsg = sessionActive
+    ? (choice === 'dontknow' ? '即将回归（1-3 张后）' : '稍后回归（5-10 张后）')
+    : '已加入复习队列';
+  if (manualAdvance) {
+    if (actions) actions.innerHTML = '<div style="width:100%;text-align:center;font-size:14px;color:var(--text-muted);padding:8px;">' + reinsertMsg + '</div><button class="btn btn-primary" style="margin-top:8px;width:100%;" onclick="advanceAfterAnswer()">下一张 →</button>';
+  } else {
+    if (actions) actions.innerHTML = '<div style="width:100%;text-align:center;font-size:14px;color:var(--text-muted);padding:8px;">' + reinsertMsg + '</div>';
+    setTimeout(() => advanceAfterAnswer(), 800);
+  }
+}
+
+// Advance to next card WITHOUT incrementing index — used after answering
+// (the word was already removed from queue, so index points to the next word)
+function advanceAfterAnswer() {
+  if (sessionActive) {
+    if (sessionQueue.length === 0) {
+      completeSession();
+      return;
+    }
+    cardStage = 1;
+    renderSessionCard();
+    if (flashcardAutoSpeak) autoSpeakCurrent();
+  } else {
+    flashcardIndex = (flashcardIndex + 1) % (flashcardPool.length || 1);
+    cardStage = 1;
+    renderFlashcard();
+    if (flashcardAutoSpeak) autoSpeakCurrent();
   }
 }
 
@@ -2142,10 +2864,50 @@ function pushCurrentToEnd() {
   if (flashcardIndex >= flashcardPool.length) flashcardIndex = 0;
 }
 
-function nextCard() { flashcardIndex = (flashcardIndex + 1) % (flashcardPool.length || 1); cardStage = 1; renderFlashcard(); if (flashcardAutoSpeak) autoSpeakCurrent(); }
-function prevCard() { flashcardIndex = (flashcardIndex - 1 + flashcardPool.length) % (flashcardPool.length || 1); cardStage = 1; renderFlashcard(); if (flashcardAutoSpeak) autoSpeakCurrent(); }
+function nextCard() {
+  if (sessionActive) {
+    if (sessionQueue.length === 0) {
+      completeSession();
+      return;
+    }
+    flashcardIndex = (flashcardIndex + 1) % sessionQueue.length;
+    cardStage = 1;
+    renderSessionCard();
+    if (flashcardAutoSpeak) autoSpeakCurrent();
+  } else {
+    flashcardIndex = (flashcardIndex + 1) % (flashcardPool.length || 1);
+    cardStage = 1;
+    renderFlashcard();
+    if (flashcardAutoSpeak) autoSpeakCurrent();
+  }
+}
+function prevCard() {
+  if (sessionActive) {
+    if (sessionQueue.length === 0) return;
+    flashcardIndex = (flashcardIndex - 1 + sessionQueue.length) % sessionQueue.length;
+    cardStage = 1;
+    renderSessionCard();
+    if (flashcardAutoSpeak) autoSpeakCurrent();
+  } else {
+    flashcardIndex = (flashcardIndex - 1 + flashcardPool.length) % (flashcardPool.length || 1);
+    cardStage = 1;
+    renderFlashcard();
+    if (flashcardAutoSpeak) autoSpeakCurrent();
+  }
+}
 function shuffleCard() { flashcardIndex = Math.floor(Math.random() * (flashcardPool.length || 1)); cardStage = 1; renderFlashcard(); if (flashcardAutoSpeak) autoSpeakCurrent(); }
-function autoSpeakCurrent() { const idx = flashcardPool[flashcardIndex]; if (idx !== undefined && WORDS[idx]) speakWord(WORDS[idx].ru); }
+function autoSpeakCurrent() {
+  if (sessionActive) {
+    const wordId = sessionQueue[flashcardIndex];
+    if (wordId !== undefined) {
+      const w = WORDS.find(x => x.id === wordId);
+      if (w) speakWord(w.ru);
+    }
+  } else {
+    const idx = flashcardPool[flashcardIndex];
+    if (idx !== undefined && WORDS[idx]) speakWord(WORDS[idx].ru);
+  }
+}
 
 // ========================================================
 //  QUIZ
@@ -2262,14 +3024,14 @@ function submitTyping() {
   const fb = document.getElementById('quiz-feedback');
   if (isCorrect) {
     input.classList.add('correct-typing'); input.disabled = true;
-    fb.innerHTML = '<i class="fa-solid fa-circle-check"></i> 完全正确！' + (w.example?`<div class="quiz-example"><i class="fa-solid fa-quote-left"></i> ${w.example} <button class="btn-speak-inline" onclick="event.stopPropagation();speakWord('${w.example.replace(/'/g,"\\'").replace(/"/g,'&quot;')}')"><i class="fa-solid fa-volume-high"></i></button></div>`:''); fb.className = 'quiz-feedback correct-fb';
+    fb.innerHTML = '<i class="fa-solid fa-circle-check"></i> 完全正确！' + (w.example ? '<div class="quiz-example"><div class="example-text">' + escHtml(w.example) + '</div>' + (w.exampleZh ? '<div class="example-zh">' + escHtml(toSimplified(w.exampleZh)) + '</div>' : '') + '<button class="btn-speak-example" onclick="event.stopPropagation();speakWord(\'' + w.example.replace(/'/g,"\\'") + '\')" style="margin-top:6px;"><i class="fa-solid fa-volume-high"></i> 朗读</button></div>' : '<div class="quiz-example"><span class="example-loading"><i class="fa-solid fa-spinner fa-spin"></i> 例句加载中...</span></div>'); fb.className = 'quiz-feedback correct-fb';
     w._correct = true;
     setSRS(w.id, updateProficiency('know', getSRS(w.id)));
     speakWord(w.ru);
     playSound('correct'); vibrate('correct');
   } else {
     input.classList.add('wrong-typing'); input.disabled = true;
-    fb.innerHTML = `<i class="fa-solid fa-circle-xmark"></i> 正确答案是：<strong>${w.ru}</strong> ${w.tr||''}` + (w.example?`<div class="quiz-example"><i class="fa-solid fa-quote-left"></i> ${w.example} <button class="btn-speak-inline" onclick="event.stopPropagation();speakWord('${w.example.replace(/'/g,"\\'").replace(/"/g,'&quot;')}')"><i class="fa-solid fa-volume-high"></i></button></div>`:'');
+    fb.innerHTML = `<i class="fa-solid fa-circle-xmark"></i> 正确答案是：<strong>${w.ru}</strong> ${w.tr||''}` + (w.example ? '<div class="quiz-example"><div class="example-text">' + escHtml(w.example) + '</div>' + (w.exampleZh ? '<div class="example-zh">' + escHtml(toSimplified(w.exampleZh)) + '</div>' : '') + '</div>' : '<div class="quiz-example"><span class="example-loading"><i class="fa-solid fa-spinner fa-spin"></i> 例句加载中...</span></div>');
     fb.className = 'quiz-feedback wrong-fb';
     setSRS(w.id, updateProficiency('forgot', getSRS(w.id)));
     playSound('wrong'); vibrate('wrong');
@@ -2277,6 +3039,11 @@ function submitTyping() {
   recordReview();
   updateStats();
   document.getElementById('quiz-next-btn').classList.add('show');
+  // Auto-fetch example if word doesn't have one
+  if (!w.example && !w._exampleFetching) {
+    w._exampleFetching = true;
+    fetchExampleForQuiz(w.id);
+  }
 }
 
 function answerQuizChoice(selectedId) {
@@ -2290,12 +3057,12 @@ function answerQuizChoice(selectedId) {
   });
   const fb = document.getElementById('quiz-feedback');
   if (isCorrect) {
-    fb.innerHTML = '<i class="fa-solid fa-circle-check"></i> 正确！' + (w.example?`<div class="quiz-example"><i class="fa-solid fa-quote-left"></i> ${w.example} <button class="btn-speak-inline" onclick="event.stopPropagation();speakWord('${w.example.replace(/'/g,"\\'").replace(/"/g,'&quot;')}')"><i class="fa-solid fa-volume-high"></i></button></div>`:''); fb.className = 'quiz-feedback correct-fb';
+    fb.innerHTML = '<i class="fa-solid fa-circle-check"></i> 正确！' + (w.example ? '<div class="quiz-example"><div class="example-text">' + escHtml(w.example) + '</div>' + (w.exampleZh ? '<div class="example-zh">' + escHtml(toSimplified(w.exampleZh)) + '</div>' : '') + '<button class="btn-speak-example" onclick="event.stopPropagation();speakWord(\'' + w.example.replace(/'/g,"\\'") + '\')" style="margin-top:6px;"><i class="fa-solid fa-volume-high"></i> 朗读</button></div>' : '<div class="quiz-example"><span class="example-loading"><i class="fa-solid fa-spinner fa-spin"></i> 例句加载中...</span></div>'); fb.className = 'quiz-feedback correct-fb';
     w._correct = true;
     setSRS(w.id, updateProficiency('know', getSRS(w.id)));
     playSound('correct'); vibrate('correct');
   } else {
-    fb.innerHTML = (quizType === 'zh-ru' ? `<i class="fa-solid fa-circle-xmark"></i> 正确答案：<strong>${w.ru}</strong> ${w.tr||''} (${w.zh})` : '<i class="fa-solid fa-circle-xmark"></i> 正确答案：' + w.zh) + (w.example?`<div class="quiz-example"><i class="fa-solid fa-quote-left"></i> ${w.example} <button class="btn-speak-inline" onclick="event.stopPropagation();speakWord('${w.example.replace(/'/g,"\\'").replace(/"/g,'&quot;')}')"><i class="fa-solid fa-volume-high"></i></button></div>`:'');
+    fb.innerHTML = (quizType === 'zh-ru' ? `<i class="fa-solid fa-circle-xmark"></i> 正确答案：<strong>${w.ru}</strong> ${w.tr||''} (${w.zh})` : '<i class="fa-solid fa-circle-xmark"></i> 正确答案：' + w.zh) + (w.example ? '<div class="quiz-example"><div class="example-text">' + escHtml(w.example) + '</div>' + (w.exampleZh ? '<div class="example-zh">' + escHtml(toSimplified(w.exampleZh)) + '</div>' : '') + '<button class="btn-speak-example" onclick="event.stopPropagation();speakWord(\'' + w.example.replace(/'/g,"\\'") + '\')" style="margin-top:6px;"><i class="fa-solid fa-volume-high"></i> 朗读</button></div>' : '<div class="quiz-example"><span class="example-loading"><i class="fa-solid fa-spinner fa-spin"></i> 例句加载中...</span></div>');
     fb.className = 'quiz-feedback wrong-fb';
     setSRS(w.id, updateProficiency('forgot', getSRS(w.id)));
     playSound('wrong'); vibrate('wrong');
@@ -2303,9 +3070,240 @@ function answerQuizChoice(selectedId) {
   recordReview();
   updateStats();
   document.getElementById('quiz-next-btn').classList.add('show');
+  // Auto-fetch example if word doesn't have one
+  if (!w.example && !w._exampleFetching) {
+    w._exampleFetching = true;
+    fetchExampleForQuiz(w.id);
+  }
 }
 
 function nextQuiz() { quizIndex++; renderQuiz(); }
+
+// ========================================================
+//  MEMORY GAME
+// ========================================================
+function startMemoryGame() {
+  // Cleanup any running timer
+  if (memoryTimerInterval) { clearInterval(memoryTimerInterval); memoryTimerInterval = null; }
+
+  // Guard: need at least 8 words
+  if (WORDS.length < 8) {
+    document.getElementById('main-content').innerHTML = `<div class="memory-empty">
+      <div class="memory-empty-icon"><i class="fa-solid fa-puzzle-piece"></i></div>
+      <h3>需要至少 8 个单词</h3>
+      <p>当前只有 ${WORDS.length} 个单词，添加更多单词后再来玩吧！</p>
+      <button class="btn btn-outline" style="margin-top:16px;width:auto;display:inline-block;" onclick="setMode('flashcard')">
+        <i class="fa-solid fa-layer-group"></i> 去背单词
+      </button>
+    </div>`;
+    return;
+  }
+
+  // Pick 8 random words
+  const selected = shuffleArr([...WORDS]).slice(0, 8);
+
+  // Build deck: 2 cards per word (ru + zh)
+  memoryCards = [];
+  selected.forEach((w, i) => {
+    memoryCards.push({
+      id: 'mc-' + (i * 2), wordId: w.id, pairId: i,
+      type: 'ru', text: w.ru, sub: w.tr || '',
+      isFlipped: false, isMatched: false
+    });
+    memoryCards.push({
+      id: 'mc-' + (i * 2 + 1), wordId: w.id, pairId: i,
+      type: 'zh', text: w.zh, sub: w.pos || '',
+      isFlipped: false, isMatched: false
+    });
+  });
+
+  // Shuffle and reset state
+  memoryCards = shuffleArr(memoryCards);
+  memoryFlippedIndices = [];
+  memoryMatchedPairs = 0;
+  memoryMoves = 0;
+  memoryTimerSec = 0;
+  memoryLocked = false;
+
+  renderMemoryBoard();
+  updateMemoryTimer();
+
+  // Start timer
+  memoryTimerInterval = setInterval(() => {
+    memoryTimerSec++;
+    updateMemoryTimer();
+  }, 1000);
+}
+
+function renderMemoryBoard() {
+  const min = Math.floor(memoryTimerSec / 60);
+  const sec = memoryTimerSec % 60;
+  const timeStr = String(min).padStart(2, '0') + ':' + String(sec).padStart(2, '0');
+
+  let html = `<div class="memory-game-container">
+    <div class="memory-stats">
+      <div class="memory-stat">
+        <i class="fa-solid fa-clock"></i> <span class="memory-timer" id="mem-timer">${timeStr}</span>
+      </div>
+      <div class="memory-stat">
+        <i class="fa-solid fa-shoe-prints"></i> <span class="memory-moves" id="mem-moves">${memoryMoves} 步</span>
+      </div>
+      <div class="memory-stat">
+        <i class="fa-solid fa-check-double"></i> <span class="memory-pairs" id="mem-pairs">${memoryMatchedPairs}/8</span>
+      </div>
+    </div>
+
+    <div class="memory-board">`;
+
+  memoryCards.forEach((card, i) => {
+    const flippedClass = card.isFlipped ? ' flipped' : '';
+    const matchedClass = card.isMatched ? ' matched' : '';
+    const typeClass = card.type;
+    html += `<div class="memory-card ${typeClass}${flippedClass}${matchedClass}" id="${card.id}" onclick="flipMemoryCard(${i})">
+      <div class="memory-card-inner">
+        <div class="memory-card-front">
+          <i class="fa-solid fa-question"></i>
+        </div>
+        <div class="memory-card-back">
+          <div class="memory-card-text">${escHtml(card.text)}</div>
+          ${card.sub ? '<div class="memory-card-sub">' + escHtml(card.sub) + '</div>' : ''}
+          <div class="memory-card-type">${card.type === 'ru' ? 'RU' : 'ZH'}</div>
+        </div>
+      </div>
+    </div>`;
+  });
+
+  html += `</div></div>`;
+
+  document.getElementById('main-content').innerHTML = html;
+}
+
+function flipMemoryCard(index) {
+  if (memoryLocked) return;
+  const card = memoryCards[index];
+  if (!card || card.isFlipped || card.isMatched) return;
+  if (memoryFlippedIndices.length >= 2) return;
+
+  // Flip the card
+  card.isFlipped = true;
+  memoryFlippedIndices.push(index);
+
+  // Update DOM
+  const el = document.getElementById(card.id);
+  if (el) el.classList.add('flipped');
+
+  playSound('flip');
+
+  // Check match when 2 cards flipped
+  if (memoryFlippedIndices.length === 2) {
+    memoryMoves++;
+    updateMemoryMoves();
+    setTimeout(() => checkMemoryMatch(), 500);
+  }
+}
+
+function checkMemoryMatch() {
+  const [i1, i2] = memoryFlippedIndices;
+  const card1 = memoryCards[i1];
+  const card2 = memoryCards[i2];
+
+  if (!card1 || !card2) { memoryFlippedIndices = []; return; }
+
+  if (card1.pairId === card2.pairId) {
+    // Match!
+    card1.isMatched = true;
+    card2.isMatched = true;
+    memoryMatchedPairs++;
+    memoryFlippedIndices = [];
+
+    const el1 = document.getElementById(card1.id);
+    const el2 = document.getElementById(card2.id);
+    if (el1) { el1.classList.add('matched'); }
+    if (el2) { el2.classList.add('matched'); }
+
+    playSound('correct');
+    updateMemoryPairs();
+
+    if (memoryMatchedPairs === 8) {
+      setTimeout(() => endMemoryGame(), 600);
+    }
+  } else {
+    // Mismatch
+    memoryLocked = true;
+    const el1 = document.getElementById(card1.id);
+    const el2 = document.getElementById(card2.id);
+    if (el1) { el1.classList.add('mismatched'); }
+    if (el2) { el2.classList.add('mismatched'); }
+    playSound('wrong');
+
+    setTimeout(() => {
+      card1.isFlipped = false;
+      card2.isFlipped = false;
+      memoryFlippedIndices = [];
+      memoryLocked = false;
+
+      if (el1) { el1.classList.remove('flipped', 'mismatched'); }
+      if (el2) { el2.classList.remove('flipped', 'mismatched'); }
+    }, 1000);
+  }
+}
+
+function endMemoryGame() {
+  if (memoryTimerInterval) { clearInterval(memoryTimerInterval); memoryTimerInterval = null; }
+  memoryLocked = true;
+
+  const min = Math.floor(memoryTimerSec / 60);
+  const sec = memoryTimerSec % 60;
+  const timeStr = min > 0 ? min + '分' + sec + '秒' : sec + '秒';
+
+  document.getElementById('main-content').innerHTML = `<div class="memory-complete">
+    <div class="memory-complete-icon"><i class="fa-solid fa-trophy"></i></div>
+    <h2>恭喜完成！</h2>
+    <p class="memory-complete-subtitle">全部 8 对都找到了</p>
+
+    <div class="memory-complete-stats">
+      <div class="mcs-item">
+        <div class="mcs-num">${timeStr}</div>
+        <div class="mcs-label">用时</div>
+      </div>
+      <div class="mcs-item">
+        <div class="mcs-num">${memoryMoves}</div>
+        <div class="mcs-label">步数</div>
+      </div>
+      <div class="mcs-item">
+        <div class="mcs-num">8/8</div>
+        <div class="mcs-label">配对</div>
+      </div>
+    </div>
+
+    <button class="btn btn-primary btn-lg" onclick="startMemoryGame()" style="width:auto;display:inline-block;">
+      <i class="fa-solid fa-arrow-rotate-right"></i> 再玩一局
+    </button>
+    <button class="btn btn-ghost btn-sm" onclick="setMode('flashcard')" style="margin-top:8px;">返回闪卡</button>
+  </div>`;
+
+  // Triple confetti
+  playSound('milestone');
+  setTimeout(() => launchConfetti(window.innerWidth / 2, 250), 200);
+  setTimeout(() => launchConfetti(window.innerWidth / 2 - 160, 200), 500);
+  setTimeout(() => launchConfetti(window.innerWidth / 2 + 160, 200), 800);
+}
+
+function updateMemoryTimer() {
+  const el = document.getElementById('mem-timer');
+  if (!el) return;
+  const min = Math.floor(memoryTimerSec / 60);
+  const sec = memoryTimerSec % 60;
+  el.textContent = String(min).padStart(2, '0') + ':' + String(sec).padStart(2, '0');
+}
+function updateMemoryMoves() {
+  const el = document.getElementById('mem-moves');
+  if (el) el.textContent = memoryMoves + ' 步';
+}
+function updateMemoryPairs() {
+  const el = document.getElementById('mem-pairs');
+  if (el) el.textContent = memoryMatchedPairs + '/8';
+}
 
 // ========================================================
 //  WORD LIST
@@ -2318,7 +3316,7 @@ function addFromDictionary(ru, tr, zh, pos) {
     showToast('该词已在当前词库中', ''); return;
   }
   const id = (crypto.randomUUID) ? crypto.randomUUID() : 'id-' + Date.now() + '-' + Math.random().toString(36).substr(2, 9);
-  WORDS.push({ id, ru, tr: tr || '', zh, pos: pos || '', example: '' });
+  WORDS.push({ id, ru, tr: tr || '', zh, pos: pos || '', example: '', exampleZh: '' });
   saveDeck();
   updateStats();
   refreshListResults();
@@ -2388,7 +3386,7 @@ function refreshListResults() {
           <div class="word-actions">
             <button class="btn-action speak-btn" onclick="speakWord('${w[0].replace(/'/g,"\\'")}')"><i class="fa-solid fa-volume-high"></i></button>
             ${isAdded
-              ? '<span style="font-size:11px;color:var(--success);"><i class="fa-solid fa-check"></i></span>'
+              ? '<span style="font-size:11px;color:var(--success);">✓</span>'
               : `<button class="btn btn-outline btn-sm" style="padding:3px 8px;font-size:11px;" onclick="addFromDictionary('${w[0].replace(/'/g,"\\'")}','${(w[1]||'').replace(/'/g,"\\'")}','${w[2].replace(/'/g,"\\'")}','${(w[3]||'').replace(/'/g,"\\'")}')">+ 添加</button>`
             }
           </div>
@@ -2399,12 +3397,11 @@ function refreshListResults() {
     const q = listSearchQuery.toLowerCase();
     const filtered = WORDS.filter(w => !q || normalizeCompare(w.ru).includes(q) || w.zh.toLowerCase().includes(q) || (w.tr||'').toLowerCase().includes(q));
     resultsEl.innerHTML = filtered.map(w => `<div class="word-item">
-      <div class="word-left"><div><span class="word-ru">${w.ru}</span></div><div class="word-tr">${w.tr||''}</div>${w.example?`<div class="word-example-truncated"><i class="fa-solid fa-quote-left"></i> ${w.example.length>45?w.example.slice(0,45)+'...':w.example}</div>`:''}<div class="word-srs"><span class="card-srs-badge ${getSRSBadgeClass(w.id)}">${getSRSLabel(w.id)}</span></div></div>
+      <div class="word-left"><div><span class="word-ru">${w.ru}</span></div><div class="word-tr">${w.tr||''}</div><div class="word-srs"><span class="card-srs-badge ${getSRSBadgeClass(w.id)}">${getSRSLabel(w.id)}</span></div>${w.example ? '<div class="word-example-truncated"><i class="fa-solid fa-quote-left"></i> ' + escHtml(w.example.substring(0, 40)) + (w.example.length > 40 ? '...' : '') + '</div>' : ''}</div>
       <div style="display:flex;align-items:center;gap:10px;"><span class="word-zh">${w.zh}</span><span style="font-size:12px;color:var(--text-muted);">${w.pos||''}</span>
       <div class="word-actions">
         <button class="btn-action star-btn" onclick="toggleStar('${w.id}');renderList();" style="color:${isStarred(w.id)?'#F59E0B':''};">${isStarred(w.id)?'<i class="fa-solid fa-star"></i>':'<i class="fa-regular fa-star"></i>'}</button>
         <button class="btn-action speak-btn" onclick="speakWord('${w.ru.replace(/'/g,"\\'")}')"><i class="fa-solid fa-volume-high"></i></button>
-        ${w.example?`<button class="btn-action speak-btn" onclick="speakWord('${w.example.replace(/'/g,"\\'").replace(/"/g,'&quot;')}')" title="朗读例句" style="font-size:12px;"><i class="fa-solid fa-comment-dots"></i></button>`:''}
         <button class="btn-action edit-btn" onclick="openEditModal('${w.id}')"><i class="fa-solid fa-pencil"></i></button>
         <button class="btn-action delete-btn" onclick="deleteWord('${w.id}')"><i class="fa-solid fa-trash-can"></i></button>
       </div></div></div>`).join('') || '<div class="empty-state">没有匹配的单词</div>';
@@ -2425,18 +3422,10 @@ function openEditModal(wordId) {
   document.getElementById('edit-zh').value = w.zh;
   document.getElementById('edit-pos').value = w.pos || '';
   document.getElementById('edit-example').value = w.example || '';
+  document.getElementById('edit-exampleZh').value = w.exampleZh || '';
   document.getElementById('edit-modal').classList.add('show');
 }
 function closeEditModal() { editingWordId = null; document.getElementById('edit-modal').classList.remove('show'); }
-async function generateExampleInModal() {
-  if (!editingWordId) return;
-  const btn = document.getElementById('btn-gen-example-modal');
-  if (btn) { btn.disabled = true; btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i>'; }
-  await generateExample(editingWordId);
-  const w = WORDS.find(x => x.id === editingWordId);
-  if (w) document.getElementById('edit-example').value = w.example || '';
-  if (btn) { btn.disabled = false; btn.innerHTML = '<i class="fa-solid fa-wand-magic-sparkles"></i>'; }
-}
 function saveEdit() {
   if (!editingWordId) return;
   const w = WORDS.find(x => x.id === editingWordId); if (!w) return;
@@ -2445,7 +3434,8 @@ function saveEdit() {
   w.zh = document.getElementById('edit-zh').value.trim() || w.zh;
   w.pos = document.getElementById('edit-pos').value.trim();
   w.example = document.getElementById('edit-example').value.trim();
-  updateWordLocal(editingWordId, w.ru, w.tr, w.zh, w.pos, w.example);
+  w.exampleZh = document.getElementById('edit-exampleZh').value.trim();
+  updateWordLocal(editingWordId, w.ru, w.tr, w.zh, w.pos, w.example, w.exampleZh);
   closeEditModal();
   renderMain();
 }
@@ -2463,10 +3453,15 @@ function deleteWord(wordId) {
 // ── Main render ───────────────────────────────────────
 function renderMain() {
   updateStats();
-  if (currentMode === 'flashcard') renderFlashcard();
+  if (currentMode === 'flashcard') {
+    if (sessionActive) renderSessionCard();
+    else if (sessionMode) renderSessionStart();
+    else renderFlashcard();
+  }
   else if (currentMode === 'quiz') startQuiz();
   else if (currentMode === 'stats') renderStatsDashboard();
   else if (currentMode === 'listen') { stopListening(); renderListen(); }
+  else if (currentMode === 'game') startMemoryGame();
   else renderList();
 }
 
@@ -2485,7 +3480,7 @@ function cleanField(s) {
 
 function parseLine(line) {
   line = line.trim(); if (!line) return null;
-  let ru = '', tr = '', zh = '', pos = '', example = '';
+  let ru = '', tr = '', zh = '', pos = '';
 
   // Helper: extract trailing parenthesized part-of-speech from a string
   const extractPos = (s) => {
@@ -2503,8 +3498,7 @@ function parseLine(line) {
       if (parts[idx] && /^\[.*\]$/.test(parts[idx])) { tr = parts[idx]; idx++; }
       if (parts[idx]) zh = cleanField(parts[idx]);
       if (parts[idx + 1]) pos = cleanField(parts[idx + 1]);
-      if (parts[idx + 2]) example = cleanField(parts[idx + 2]);
-      if (ru && zh) return { ru, tr, zh, pos, example };
+      if (ru && zh) return { ru, tr, zh, pos };
     }
   }
 
@@ -2516,8 +3510,7 @@ function parseLine(line) {
       if (parts[idx] && /^\[.*\]$/.test(parts[idx])) { tr = parts[idx]; idx++; }
       if (parts[idx]) zh = cleanField(parts[idx]);
       if (parts[idx + 1]) pos = cleanField(parts[idx + 1]);
-      if (parts[idx + 2]) example = cleanField(parts[idx + 2]);
-      if (ru && zh) return { ru, tr, zh, pos, example };
+      if (ru && zh) return { ru, tr, zh, pos };
     }
   }
 
@@ -2529,8 +3522,7 @@ function parseLine(line) {
       if (parts[idx] && /^\[.*\]$/.test(parts[idx])) { tr = parts[idx]; idx++; }
       if (parts[idx]) zh = cleanField(parts[idx]);
       if (parts[idx + 1]) pos = cleanField(parts[idx + 1]);
-      if (parts[idx + 2]) example = cleanField(parts[idx + 2]);
-      if (ru && zh) return { ru, tr, zh, pos, example };
+      if (ru && zh) return { ru, tr, zh, pos };
     }
   }
 
@@ -2541,7 +3533,7 @@ function parseLine(line) {
     const right = cleanField(line.slice(idx + 1));
     if (ru && right) {
       const ep = extractPos(right);
-      if (ru && ep.text) return { ru, tr, zh: ep.text, pos: ep.pos, example: '' };
+      if (ru && ep.text) return { ru, tr, zh: ep.text, pos: ep.pos };
     }
   }
 
@@ -2552,7 +3544,7 @@ function parseLine(line) {
     const right = cleanField(line.slice(idx + 1));
     if (ru && right) {
       const ep = extractPos(right);
-      if (ru && ep.text) return { ru, tr, zh: ep.text, pos: ep.pos, example: '' };
+      if (ru && ep.text) return { ru, tr, zh: ep.text, pos: ep.pos };
     }
   }
 
@@ -2563,7 +3555,7 @@ function parseLine(line) {
     const right = cleanField(line.slice(idx + 1));
     if (ru && right) {
       const ep = extractPos(right);
-      if (ru && ep.text) return { ru, tr, zh: ep.text, pos: ep.pos, example: '' };
+      if (ru && ep.text) return { ru, tr, zh: ep.text, pos: ep.pos };
     }
   }
 
@@ -2572,7 +3564,7 @@ function parseLine(line) {
   if (dashMatch) {
     ru = cleanField(dashMatch[1]);
     const ep = extractPos(cleanField(dashMatch[2]));
-    if (ru && ep.text) return { ru, tr, zh: ep.text, pos: ep.pos, example: '' };
+    if (ru && ep.text) return { ru, tr, zh: ep.text, pos: ep.pos };
   }
 
   // ── 8. Extract transcription bracket before main parse ──
@@ -2589,7 +3581,7 @@ function parseLine(line) {
   if (foreignSeq) {
     ru = cleanField(foreignSeq[1]);
     const ep = extractPos(cleanField(foreignSeq[2]));
-    if (ru && ep.text) return { ru, tr, zh: ep.text, pos: ep.pos, example: '' };
+    if (ru && ep.text) return { ru, tr, zh: ep.text, pos: ep.pos };
   }
 
   // If we have tr from step 8 but no zh yet, try to extract what remains
@@ -2622,7 +3614,7 @@ function showPreview(parsed) {
   tbody.innerHTML = parsed.map(p => {
     const isDup = existingSet.has(normalize(p.ru));
     if (isDup) dupCount++; else newCount++;
-    return `<tr><td class="col-ru">${p.ru} ${isDup?'<span class="tag tag-dup">重复</span>':'<span class="tag tag-new">新增</span>'}</td><td class="col-tr">${p.tr||''}</td><td class="col-zh">${p.zh}</td><td class="col-pos">${p.pos||''}</td><td class="col-example">${p.example||''}</td></tr>`;
+    return `<tr><td class="col-ru">${p.ru} ${isDup?'<span class="tag tag-dup">重复</span>':'<span class="tag tag-new">新增</span>'}</td><td class="col-tr">${p.tr||''}</td><td class="col-zh">${p.zh}</td><td class="col-pos">${p.pos||''}</td></tr>`;
   }).join('');
   countEl.innerHTML = `识别到 <strong>${parsed.length}</strong> 个单词（<span style="color:#1565c0;">${newCount} 新增</span>，<span style="color:#e65100;">${dupCount} 重复</span>）`;
   section.style.display = 'block'; confirmBtn.disabled = (newCount === 0);
@@ -2652,7 +3644,7 @@ function confirmImport() {
   for (const p of pendingImport) {
     if (existingSet.has(normalize(p.ru))) continue;
     const id = (crypto.randomUUID) ? crypto.randomUUID() : 'id-' + Date.now() + '-' + Math.random().toString(36).substr(2, 9);
-    targetWords.push({ id, ru: p.ru, tr: p.tr || '', zh: p.zh, pos: p.pos || '', example: p.example || '' });
+    targetWords.push({ id, ru: p.ru, tr: p.tr || '', zh: p.zh, pos: p.pos || '', example: '', exampleZh: '' });
     existingSet.add(normalize(p.ru)); added++;
   }
   if (targetFolderId !== activeFolderId) {
@@ -2705,10 +3697,66 @@ function parsePastedText() {
   showPreview(parsed);
 }
 
+// ── Full Data Backup / Restore ──────────────────────
+function exportFullBackup() {
+  const backup = {};
+  for (let i = 0; i < localStorage.length; i++) {
+    const key = localStorage.key(i);
+    backup[key] = localStorage.getItem(key);
+  }
+  const payload = {
+    version: 1,
+    exportedAt: new Date().toISOString(),
+    totalKeys: Object.keys(backup).length,
+    data: backup
+  };
+  const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = 'flashcards_backup_' + new Date().toISOString().slice(0, 10) + '.json';
+  a.click();
+  URL.revokeObjectURL(url);
+  showToast('<i class="fa-solid fa-check-circle"></i> 备份已下载', 'success');
+}
+
+function importFullBackup(event) {
+  const file = event.target.files[0];
+  if (!file) return;
+
+  const reader = new FileReader();
+  reader.onload = function(e) {
+    try {
+      const payload = JSON.parse(e.target.result);
+      if (!payload.data || typeof payload.data !== 'object') {
+        throw new Error('无效的备份文件格式');
+      }
+
+      const keyCount = Object.keys(payload.data).length;
+      if (!confirm('即将从备份恢复 ' + keyCount + ' 条数据。\n\n⚠️ 当前数据将被覆盖，确定继续？')) {
+        event.target.value = '';
+        return;
+      }
+
+      // Write all backup data to localStorage
+      for (const [key, value] of Object.entries(payload.data)) {
+        try { localStorage.setItem(key, value); } catch(e) {}
+      }
+
+      showToast('<i class="fa-solid fa-check-circle"></i> 数据已恢复，即将刷新...', 'success');
+      setTimeout(() => location.reload(), 1500);
+    } catch(err) {
+      alert('备份文件无效或已损坏：' + err.message);
+    }
+    event.target.value = '';
+  };
+  reader.readAsText(file);
+}
+
 function exportWords() {
   if (WORDS.length === 0) { alert('没有单词可导出'); return; }
-  const header = '单词\t音标\t中文\t词性\t例句';
-  const lines = WORDS.map(w => [w.ru, w.tr||'', w.zh, w.pos||'', w.example||''].join('\t'));
+  const header = '单词\t音标\t中文\t词性\t例句\t例句翻译';
+  const lines = WORDS.map(w => [w.ru, w.tr||'', w.zh, w.pos||'', w.example||'', w.exampleZh||''].join('\t'));
   const currentLang = userLanguages.find(l => l.lang === activeLang);
   const currentFolder = folders.find(f => f.id === activeFolderId);
   const langName = currentLang ? currentLang.name : activeLang;
@@ -2808,6 +3856,7 @@ window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () 
 // ========================================================
 function openSettings() {
   document.getElementById('setting-daily-goal').value = dailyGoal;
+  document.getElementById('setting-new-words').value = newWordsPerDay;
   document.getElementById('setting-sound').checked = soundEnabled;
   document.getElementById('setting-haptic').checked = hapticEnabled;
   document.getElementById('setting-auto-speak').checked = flashcardAutoSpeak;
@@ -2815,7 +3864,6 @@ function openSettings() {
   document.getElementById('setting-speech-rate').value = listenSpeechRate;
   document.getElementById('speech-rate-val').textContent = listenSpeechRate + 'x';
   document.getElementById('setting-repeat-count').value = listenRepeatCount;
-  document.getElementById('setting-api-key').value = getApiKey();
   document.getElementById('settings-panel').classList.add('show');
 }
 function closeSettings() { document.getElementById('settings-panel').classList.remove('show'); }
@@ -2839,12 +3887,6 @@ function updateSpeechRate(val) {
 function updateRepeatCount(val) {
   listenRepeatCount = Math.max(1, Math.min(5, parseInt(val) || 1));
   localStorage.setItem('flashcards_repeat_count', listenRepeatCount);
-}
-function getApiKey() {
-  return localStorage.getItem('flashcards_api_key') || '';
-}
-function updateApiKey(val) {
-  localStorage.setItem('flashcards_api_key', (val || '').trim());
 }
 
 // ========================================================
@@ -2915,8 +3957,8 @@ function starredCount() { return WORDS.filter(w => isStarred(w.id)).length; }
 function exportStarredWords() {
   const starred = WORDS.filter(w => isStarred(w.id));
   if (starred.length === 0) { alert('还没有收藏的单词'); return; }
-  const header = '单词\t音标\t中文\t词性\t例句';
-  const lines = starred.map(w => [w.ru, w.tr||'', w.zh, w.pos||'', w.example||''].join('\t'));
+  const header = '单词\t音标\t中文\t词性\t例句\t例句翻译';
+  const lines = starred.map(w => [w.ru, w.tr||'', w.zh, w.pos||'', w.example||'', w.exampleZh||''].join('\t'));
   const currentLang = userLanguages.find(l => l.lang === activeLang);
   const currentFolder = folders.find(f => f.id === activeFolderId);
   const langName = currentLang ? currentLang.name : activeLang;
@@ -3537,8 +4579,16 @@ document.addEventListener('keydown', e => {
     else if (e.key === 'ArrowRight') { e.preventDefault(); nextCard(); }
     else if (e.key === 'ArrowLeft') { e.preventDefault(); prevCard(); }
     else if (e.key === 's' && !e.ctrlKey && !e.metaKey) {
-      const idx = flashcardPool[flashcardIndex];
-      if (idx !== undefined) speakWord(WORDS[idx].ru);
+      if (sessionActive) {
+        const wordId = sessionQueue[flashcardIndex];
+        if (wordId !== undefined) {
+          const w = WORDS.find(x => x.id === wordId);
+          if (w) speakWord(w.ru);
+        }
+      } else {
+        const idx = flashcardPool[flashcardIndex];
+        if (idx !== undefined) speakWord(WORDS[idx].ru);
+      }
     }
   }
 });
