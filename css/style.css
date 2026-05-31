@@ -815,6 +815,13 @@
 }
 .session-progress-top strong { color: var(--text); }
 .session-progress-top i { margin-right: 2px; }
+.btn-exit-session {
+  width: 28px; height: 28px; border: none; background: transparent;
+  color: var(--text-muted); font-size: 16px; cursor: pointer;
+  border-radius: 50%; display: flex; align-items: center; justify-content: center;
+  transition: all var(--transition-fast); margin-left: auto;
+}
+.btn-exit-session:hover { background: var(--danger-light); color: var(--danger); }
 .session-round-badge {
   font-size: 11px; background: var(--primary); color: #fff;
   padding: 2px 10px; border-radius: var(--radius-full); font-weight: 600;

@@ -2434,6 +2434,18 @@ function startBrowseMode() {
   renderFlashcard();
 }
 
+function exitSession() {
+  sessionActive = false;
+  sessionMode = false;
+  sessionQueue = [];
+  sessionCompletedWords = [];
+  sessionCorrectFirstTry = [];
+  sessionTotalAttempts = 0;
+  sessionWordAttempts = {};
+  saveDailySession();
+  renderSessionStart();
+}
+
 function renderSessionCard() {
   if (sessionQueue.length === 0) {
     completeSession();
@@ -2467,6 +2479,7 @@ function renderSessionCard() {
       <div class="session-progress-top">
         <span><i class="fa-solid fa-check-circle"></i> 已掌握 <strong>${mastered}</strong> 词</span>
         <span><i class="fa-solid fa-layer-group"></i> 队列 <strong>${inQueue}</strong> 词</span>
+        <button class="btn-exit-session" onclick="event.stopPropagation();exitSession()" title="退出复习"><i class="fa-solid fa-xmark"></i></button>
       </div>
       <div class="session-progress-bar">
         <div class="session-progress-fill" style="width:${progressPct}%"></div>
