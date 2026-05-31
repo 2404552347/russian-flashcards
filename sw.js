@@ -1,5 +1,5 @@
 // Service Worker for 多语言单词闪卡 PWA
-const CACHE_NAME = 'flashcards-v3';
+const CACHE_NAME = 'flashcards-v4';
 const ASSETS = [
   '.',
   'index.html',
@@ -35,17 +35,17 @@ self.addEventListener('activate', event => {
   self.clients.claim();
 });
 
-// Fetch: network-first for HTML, cache-first for static assets
+// Fetch: stale-while-revalidate — serve cache instantly, update in background
 self.addEventListener('fetch', event => {
   const url = new URL(event.request.url);
 
-  // Skip cross-origin requests (except Font Awesome which we cache)
+  // Skip cross-origin requests (except Font Awesome)
   if (url.origin !== location.origin && !url.href.includes('cdnjs.cloudflare.com')) {
     return;
   }
 
-  // For navigation requests (HTML), use network-first
-  if (event.request.mode === 'navigate') {
+  // For JS and CSS: network-first — always get latest, fallback to cache if offline
+  if (url.pathname.endsWith('.js') || url.pathname.endsWith('.css')) {
     event.respondWith(
       fetch(event.request)
         .then(response => {
@@ -58,14 +58,15 @@ self.addEventListener('fetch', event => {
     return;
   }
 
-  // For static assets, use cache-first
+  // For everything else: stale-while-revalidate
   event.respondWith(
     caches.match(event.request).then(cached => {
-      return cached || fetch(event.request).then(response => {
-        const clone = response.clone();
-        caches.open(CACHE_NAME).then(cache => cache.put(event.request, clone));
+      const fetchPromise = fetch(event.request).then(response => {
+        caches.open(CACHE_NAME).then(cache => cache.put(event.request, response.clone()));
         return response;
-      });
+      }).catch(() => null);
+
+      return cached || fetchPromise;
     })
   );
 });
