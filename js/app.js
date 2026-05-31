@@ -3334,71 +3334,29 @@ function addFromDictionary(ru, tr, zh, pos) {
   vibrate('correct');
 }
 
-function importWordPack(packKey) {
-  const packs = (WORD_PACKS && WORD_PACKS[activeLang]) ? WORD_PACKS[activeLang] : {};
-  const pack = packs[packKey];
-  if (!pack) { showToast('词汇包未找到', ''); return; }
-
-  const normalize = s => (s || '').replace(/[́]/g, '').toLowerCase();
-  const existingSet = new Set(WORDS.map(w => normalize(w.ru)));
-  let imported = 0, skipped = 0;
-
-  pack.words.forEach(([ru, tr, zh, pos]) => {
-    if (existingSet.has(normalize(ru))) { skipped++; return; }
-    const id = (crypto.randomUUID) ? crypto.randomUUID() : 'id-' + Date.now() + '-' + Math.random().toString(36).substr(2, 9);
-    WORDS.push({ id, ru, tr: tr || '', zh, pos: pos || '', example: '', exampleZh: '' });
-    existingSet.add(normalize(ru));
-    imported++;
-  });
-
-  saveDeck();
-  updateStats();
-  refreshListResults();
-  showToast(`已导入 ${imported} 词${skipped > 0 ? '，跳过 ' + skipped + ' 个重复' : ''}`, 'success');
-  vibrate('correct');
-  if (imported >= 10) { launchConfetti(); playSound('milestone'); }
-}
-
 function renderList() {
   const currentLang = userLanguages.find(l => l.lang === activeLang);
   const dictWords = (DEFAULT_WORDS && DEFAULT_WORDS[activeLang]) ? DEFAULT_WORDS[activeLang] : [];
 
   if (listShowDictionary) {
     // ── Dictionary Mode ──
-    const packs = (WORD_PACKS && WORD_PACKS[activeLang]) ? WORD_PACKS[activeLang] : {};
-    const packKeys = Object.keys(packs);
-
     document.getElementById('main-content').innerHTML = `
       <div style="display:flex;gap:8px;align-items:center;margin-bottom:12px;">
         <button class="btn btn-ghost btn-sm" onclick="toggleListDictionary()">← 返回词库</button>
         <span style="font-size:13px;color:var(--text-secondary);"><i class="fa-solid fa-book"></i> 内置词典 · ${(currentLang||{}).name||activeLang} · ${dictWords.length}词</span>
       </div>
-      ${packKeys.length > 0 ? `
-      <div class="wordpacks-section">
+      <div id="wordpacks-section"><div class="wordpacks-section">
         <div class="wordpacks-title"><i class="fa-solid fa-box-archive"></i> 词汇包 · 一键导入</div>
-        <div class="wordpacks-grid">
-          ${packKeys.map(key => {
-            const pack = packs[key];
-            const alreadyCount = WORDS.filter(w => pack.words.some(pw => pw[0].replace(/[́]/g,'').toLowerCase() === w.ru.replace(/[́]/g,'').toLowerCase())).length;
-            return `<div class="wordpack-card">
-              <div class="wordpack-info">
-                <div class="wordpack-name">${pack.name}</div>
-                <div class="wordpack-desc">${pack.desc}</div>
-              </div>
-              <div style="display:flex;align-items:center;gap:8px;">
-                <span style="font-size:11px;color:var(--text-muted);white-space:nowrap;">${pack.words.length}词${alreadyCount > 0 ? ' · 已导'+alreadyCount : ''}</span>
-                <button class="btn btn-outline btn-sm" onclick="importWordPack('${key}')" style="white-space:nowrap;"><i class="fa-solid fa-download"></i> 导入</button>
-              </div>
-            </div>`;
-          }).join('')}
-        </div>
-      </div>` : ''}
+        <div class="wordpacks-grid"><div class="wordpack-card" style="justify-content:center;color:var(--text-muted);font-size:13px;"><i class="fa-solid fa-spinner fa-spin"></i> 加载中...</div></div>
+      </div></div>
       <div class="search-wrapper">
         <i class="fa-solid fa-magnifying-glass search-icon"></i>
         <input type="text" class="search-bar has-icon" id="search-bar" placeholder="搜索词典..." value="${escHtml(listSearchQuery)}" oninput="onSearchInput(this.value)">
       </div>
       <div id="list-results" class="wordlist"></div>`;
     refreshListResults();
+    // Async load word packs
+    refreshWordPacksSection();
     return;
   }
 
