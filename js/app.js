@@ -324,7 +324,7 @@ function enterApp(username) {
         saveFoldersToStorage(code, [df]);
         const deck = words.map(w => ({
           id: crypto.randomUUID ? crypto.randomUUID() : 'id-' + Date.now() + '-' + Math.random().toString(36).substr(2, 9),
-          ru: w[0], tr: w[1] || '', zh: w[2], pos: w[3] || ''
+          ru: w[0], tr: w[1] || '', zh: w[2], pos: w[3] || '', example: ''
         }));
         saveDeckToStorage(code, deck, df.id);
         saveSRSToStorage(code, {}, df.id);
@@ -381,16 +381,16 @@ function migrateLangToFolders(lang) {
   return [defaultFolder];
 }
 
-function insertWordLocal(word, tr, zh, pos) {
+function insertWordLocal(word, tr, zh, pos, example) {
   const id = (crypto.randomUUID) ? crypto.randomUUID() : 'id-' + Date.now() + '-' + Math.random().toString(36).substr(2, 9);
-  WORDS.push({ id, ru: word, tr: tr || '', zh, pos: pos || '' });
+  WORDS.push({ id, ru: word, tr: tr || '', zh, pos: pos || '', example: example || '' });
   saveDeck();
   return id;
 }
 
-function updateWordLocal(wordId, word, tr, zh, pos) {
+function updateWordLocal(wordId, word, tr, zh, pos, example) {
   const w = WORDS.find(x => x.id === wordId);
-  if (w) { w.ru = word; w.tr = tr; w.zh = zh; w.pos = pos; saveDeck(); }
+  if (w) { w.ru = word; w.tr = tr; w.zh = zh; w.pos = pos; w.example = example !== undefined ? example : w.example; saveDeck(); }
 }
 
 function deleteWordLocal(wordId) {
@@ -1849,6 +1849,96 @@ function speakWord(text) {
 }
 if ('speechSynthesis' in window) speechSynthesis.getVoices();
 
+// Track ongoing generation to prevent double-clicks
+let _generatingExample = {};
+
+async function generateExample(wordId) {
+  const w = WORDS.find(x => x.id === wordId);
+  if (!w || _generatingExample[wordId]) return;
+
+  const apiKey = getApiKey();
+  if (!apiKey) {
+    showToast('请先在设置中填写 API Key', '');
+    openSettings();
+    return;
+  }
+
+  _generatingExample[wordId] = true;
+  showToast('<i class="fa-solid fa-spinner fa-spin"></i> 正在生成例句...', '');
+
+  const posHint = w.pos ? ` (part of speech: ${w.pos})` : '';
+
+  try {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 20000);
+
+    const resp = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': apiKey,
+        'anthropic-version': '2023-06-01',
+      },
+      body: JSON.stringify({
+        model: 'claude-3-5-haiku-latest',
+        max_tokens: 200,
+        system: 'You are a Russian language tutor. Generate natural, simple example sentences. Always respond with ONLY valid JSON, no other text.',
+        messages: [{
+          role: 'user',
+          content: `Generate one natural Russian example sentence using the word "${w.ru}" (meaning: "${w.zh}"${posHint}). Return ONLY a JSON object with keys "ru" (the Russian sentence) and "zh" (Chinese translation). Keep it simple and natural.`,
+        }],
+      }),
+      signal: controller.signal,
+    });
+
+    clearTimeout(timeout);
+
+    if (!resp.ok) {
+      const errText = await resp.text().catch(() => '');
+      if (resp.status === 401 || resp.status === 403) {
+        showToast('API Key 无效，请检查设置', '');
+      } else if (resp.status === 429) {
+        showToast('请求太频繁，请稍后再试', '');
+      } else {
+        showToast('AI 服务暂时不可用，请稍后重试', '');
+        console.error('Anthropic API error:', resp.status, errText);
+      }
+      return;
+    }
+
+    const data = await resp.json();
+    const text = data?.content?.[0]?.text || '';
+
+    let parsed;
+    try {
+      const jsonMatch = text.match(/\{[\s\S]*\}/);
+      if (jsonMatch) parsed = JSON.parse(jsonMatch[0]);
+    } catch {}
+
+    if (parsed?.ru) {
+      w.example = parsed.ru;
+    } else if (text.trim()) {
+      w.example = text.trim();
+    } else {
+      showToast('生成例句失败，请重试', '');
+      return;
+    }
+
+    saveDeck();
+    showToast('<i class="fa-solid fa-check"></i> 例句已生成！', 'success');
+    renderMain();
+  } catch (e) {
+    if (e.name === 'AbortError') {
+      showToast('请求超时，请检查网络后重试', '');
+    } else {
+      showToast('网络错误，请检查连接后重试', '');
+    }
+    console.error('generateExample error:', e);
+  } finally {
+    delete _generatingExample[wordId];
+  }
+}
+
 // ========================================================
 //  RENDER: LANGUAGE TABS
 // ========================================================
@@ -1859,7 +1949,7 @@ function renderLangTabs() {
     const active = l.lang === activeLang ? ' active' : '';
     const count = l.lang === activeLang ? WORDS.length : getTotalWordsForLang(l.lang);
     return `<div class="lang-tab${active}" onclick="switchLanguage('${l.lang}')">
-      <span class="tab-flag">${l.flag||'🌐'}</span>${l.name}
+      <span class="tab-flag">${l.flag||'<i class="fa-solid fa-globe"></i>'}</span>${l.name}
       <span class="tab-count">${count}</span>
     </div>`;
   }).join('');
@@ -1873,7 +1963,7 @@ function renderFolderTabs() {
     const active = f.id === activeFolderId ? ' active' : '';
     const wordCount = (loadDeckFromStorage(activeLang, f.id) || []).length;
     html += '<div class="folder-tab' + active + '" onclick="switchFolder(\'' + f.id + '\')">' +
-      '<span class="tab-folder-icon">📁</span>' + escHtml(f.name) +
+      '<span class="tab-folder-icon"><i class="fa-solid fa-folder"></i></span>' + escHtml(f.name) +
       '<span class="tab-count">' + wordCount + '</span>' +
       (folders.length > 1 ? '<button class="folder-delete-btn" onclick="event.stopPropagation();deleteFolder(\'' + f.id + '\')" title="删除文件夹">×</button>' : '') +
       '</div>';
@@ -1940,7 +2030,7 @@ let cardStage = 1; // 1 = question, 2 = answer revealed
 
 function renderFlashcard() {
   if (WORDS.length === 0) {
-    document.getElementById('main-content').innerHTML = '<div class="empty-state"><div style="font-size:40px;margin-bottom:12px;">📭</div><div>还没有单词，点击「导入」添加单词</div></div>';
+    document.getElementById('main-content').innerHTML = '<div class="empty-state"><div style="font-size:40px;margin-bottom:12px;"><i class="fa-solid fa-inbox"></i></div><div>还没有单词，点击「导入」添加单词</div></div>';
     return;
   }
   applyFilter();
@@ -1948,9 +2038,9 @@ function renderFlashcard() {
     const msgs = { due: '没有待复习的单词！', learning: '没有学习中的单词！', new: '没有新单词！', mastered: '还没有已掌握的单词！', all: '没有单词！', starred: '还没有收藏的单词！' };
     document.getElementById('main-content').innerHTML = `<div class="flashcard-container">
       <div class="filter-bar">${['all','due','learning','new','mastered','starred'].map(f =>
-        `<button onclick="setFlashcardFilter('${f}')" class="${flashcardFilter===f?'active':''}">${f==='all'?'全部':f==='due'?'⏳待复习':f==='learning'?'📅学习中':f==='new'?'📝新词':f==='mastered'?'✅已掌握':'⭐收藏'}</button>`
+        `<button onclick="setFlashcardFilter('${f}')" class="${flashcardFilter===f?'active':''}">${f==='all'?'全部':f==='due'?'<i class="fa-solid fa-hourglass-half"></i>待复习':f==='learning'?'<i class="fa-solid fa-calendar"></i>学习中':f==='new'?'<i class="fa-solid fa-pen-to-square"></i>新词':f==='mastered'?'<i class="fa-solid fa-circle-check"></i>已掌握':'<i class="fa-solid fa-star"></i>收藏'}</button>`
       ).join('')}</div>
-      <div class="empty-state"><div style="font-size:40px;margin-bottom:12px;">🎯</div><div>${msgs[flashcardFilter]}</div></div></div>`;
+      <div class="empty-state"><div style="font-size:40px;margin-bottom:12px;"><i class="fa-solid fa-bullseye"></i></div><div>${msgs[flashcardFilter]}</div></div></div>`;
     return;
   }
   if (flashcardIndex >= flashcardPool.length) flashcardIndex = 0;
@@ -1961,13 +2051,13 @@ function renderFlashcard() {
 
   document.getElementById('main-content').innerHTML = `<div class="flashcard-container card-enter">
     <div class="filter-bar">${['all','due','learning','new','mastered','starred'].map(f =>
-      `<button onclick="setFlashcardFilter('${f}')" class="${flashcardFilter===f?'active':''}">${f==='all'?'全部':f==='due'?'⏳'+countByCategory('due'):f==='learning'?'📅'+countByCategory('learning'):f==='new'?'📝'+countByCategory('new'):f==='mastered'?'✅'+countByCategory('mastered'):'⭐'+starredCount()}</button>`
+      `<button onclick="setFlashcardFilter('${f}')" class="${flashcardFilter===f?'active':''}">${f==='all'?'全部':f==='due'?'<i class="fa-solid fa-hourglass-half"></i>'+countByCategory('due'):f==='learning'?'<i class="fa-solid fa-calendar"></i>'+countByCategory('learning'):f==='new'?'<i class="fa-solid fa-pen-to-square"></i>'+countByCategory('new'):f==='mastered'?'<i class="fa-solid fa-circle-check"></i>'+countByCategory('mastered'):'<i class="fa-solid fa-star"></i>'+starredCount()}</button>`
     ).join('')}</div>
     <div class="word-progress">${flashcardIndex+1} / ${flashcardPool.length} · <span class="card-srs-badge ${badge}">${label}</span></div>
 
     <div class="card-stage" id="card-stage">
-      <button class="star-btn-card ${starredClass}" id="star-btn" onclick="event.stopPropagation();toggleStar('${w.id}');renderStarBtn()" title="收藏">⭐</button>
-      <button class="speak-btn-card" onclick="event.stopPropagation();speakWord('${w.ru.replace(/'/g,"\\'")}')" title="发音">🔊</button>
+      <button class="star-btn-card ${starredClass}" id="star-btn" onclick="event.stopPropagation();toggleStar('${w.id}');renderStarBtn()" title="收藏"><i class="fa-solid fa-star"></i></button>
+      <button class="speak-btn-card" onclick="event.stopPropagation();speakWord('${w.ru.replace(/'/g,"\\'")}')" title="发音"><i class="fa-solid fa-volume-high"></i></button>
 
       <div class="russian-word">${w.ru}</div>
       <div class="russian-tr">${w.tr||''}</div>
@@ -1975,6 +2065,10 @@ function renderFlashcard() {
       <div class="answer-reveal answer-hidden" id="answer-reveal">
         <div class="chinese-def">${w.zh}</div>
         <div class="word-pos">${w.pos||''}</div>
+        ${w.example ? `<div class="word-example">
+          <span class="example-text"><i class="fa-solid fa-quote-left"></i> ${w.example}</span>
+          <button class="btn-speak-example" onclick="event.stopPropagation();speakWord('${w.example.replace(/'/g,"\\'").replace(/"/g,'&quot;')}')" title="朗读例句"><i class="fa-solid fa-volume-high"></i></button>
+        </div>` : `<button class="btn-generate-example" onclick="event.stopPropagation();generateExample('${w.id}')"><i class="fa-solid fa-wand-magic-sparkles"></i> AI 生成例句</button>`}
       </div>
     </div>
 
@@ -1986,7 +2080,7 @@ function renderFlashcard() {
 
     <div class="stage-nav">
       <button class="btn btn-ghost" onclick="prevCard()">←</button>
-      <button class="btn btn-ghost" onclick="shuffleCard()">🔀</button>
+      <button class="btn btn-ghost" onclick="shuffleCard()"><i class="fa-solid fa-shuffle"></i></button>
       <button class="btn btn-ghost" onclick="nextCard()">→</button>
     </div></div>`;
 }
@@ -2018,9 +2112,9 @@ function handleStage1(choice) {
     setSRS(w.id, updateProficiency('know', getSRS(w.id)));
     recordReview(); updateStats();
     if (manualAdvance) {
-      if (actions) actions.innerHTML = '<div style="width:100%;text-align:center;font-size:16px;color:var(--primary);padding:12px;font-weight:600;">✓ 已掌握</div><button class="btn btn-primary" style="margin-top:8px;width:100%;" onclick="nextCard()">下一张 →</button>';
+      if (actions) actions.innerHTML = '<div style="width:100%;text-align:center;font-size:16px;color:var(--primary);padding:12px;font-weight:600;"><i class="fa-solid fa-check"></i> 已掌握</div><button class="btn btn-primary" style="margin-top:8px;width:100%;" onclick="nextCard()">下一张 →</button>';
     } else {
-      if (actions) actions.innerHTML = '<div style="width:100%;text-align:center;font-size:16px;color:var(--primary);padding:12px;font-weight:600;">✓ 已掌握</div>';
+      if (actions) actions.innerHTML = '<div style="width:100%;text-align:center;font-size:16px;color:var(--primary);padding:12px;font-weight:600;"><i class="fa-solid fa-check"></i> 已掌握</div>';
       setTimeout(() => nextCard(), 600);
     }
     return;
@@ -2072,7 +2166,7 @@ function startQuiz() {
 
 function renderQuiz() {
   if (WORDS.length === 0) {
-    document.getElementById('main-content').innerHTML = '<div class="empty-state"><div style="font-size:40px;margin-bottom:12px;">📭</div><div>还没有单词</div></div>';
+    document.getElementById('main-content').innerHTML = '<div class="empty-state"><div style="font-size:40px;margin-bottom:12px;"><i class="fa-solid fa-inbox"></i></div><div>还没有单词</div></div>';
     return;
   }
   if (quizWords.length === 0) { startQuiz(); return; }
@@ -2083,10 +2177,10 @@ function renderQuiz() {
       <div class="quiz-type-bar">
         <button onclick="setQuizType('ru-zh')" class="${quizType==='ru-zh'?'active':''}">外→中 选择</button>
         <button onclick="setQuizType('zh-ru')" class="${quizType==='zh-ru'?'active':''}">中→外 选择</button>
-        <button onclick="setQuizType('typing')" class="${quizType==='typing'?'active':''}">⌨️ 打字</button>
+        <button onclick="setQuizType('typing')" class="${quizType==='typing'?'active':''}"><i class="fa-solid fa-keyboard"></i> 打字</button>
       </div>
       <div style="text-align:center;padding:60px 20px;">
-        <div style="font-size:48px;margin-bottom:16px;">🎉</div>
+        <div style="font-size:48px;margin-bottom:16px;"><i class="fa-solid fa-champagne-glasses"></i></div>
         <div style="font-size:22px;font-weight:600;margin-bottom:8px;">测验完成！</div>
         <div style="font-size:16px;color:#666;margin-bottom:24px;">正确 ${correct}/${quizWords.length}</div>
         <button class="btn btn-primary" onclick="startQuiz()">再来一轮</button>
@@ -2108,11 +2202,11 @@ function renderNormalQuiz(w) {
     <div class="quiz-type-bar">
       <button onclick="setQuizType('ru-zh')" class="${quizType==='ru-zh'?'active':''}">外→中 选择</button>
       <button onclick="setQuizType('zh-ru')" class="${quizType==='zh-ru'?'active':''}">中→外 选择</button>
-      <button onclick="setQuizType('typing')" class="${quizType==='typing'?'active':''}">⌨️ 打字</button>
+      <button onclick="setQuizType('typing')" class="${quizType==='typing'?'active':''}"><i class="fa-solid fa-keyboard"></i> 打字</button>
     </div>
     <div style="display:flex;justify-content:center;align-items:center;gap:8px;">
       <div class="quiz-prompt">${w.ru}</div>
-      <button class="btn-speak" style="position:static;" onclick="event.stopPropagation();speakWord('${w.ru.replace(/'/g,"\\'")}')">🔊</button>
+      <button class="btn-speak" style="position:static;" onclick="event.stopPropagation();speakWord('${w.ru.replace(/'/g,"\\'")}')"><i class="fa-solid fa-volume-high"></i></button>
     </div>
     <div class="quiz-prompt-sub">${w.tr||''}</div>
     <div class="word-counter">第 ${quizIndex+1}/${quizWords.length} 题</div>
@@ -2128,7 +2222,7 @@ function renderReverseQuiz(w) {
     <div class="quiz-type-bar">
       <button onclick="setQuizType('ru-zh')" class="${quizType==='ru-zh'?'active':''}">外→中 选择</button>
       <button onclick="setQuizType('zh-ru')" class="${quizType==='zh-ru'?'active':''}">中→外 选择</button>
-      <button onclick="setQuizType('typing')" class="${quizType==='typing'?'active':''}">⌨️ 打字</button>
+      <button onclick="setQuizType('typing')" class="${quizType==='typing'?'active':''}"><i class="fa-solid fa-keyboard"></i> 打字</button>
     </div>
     <div class="quiz-prompt">${w.zh}</div>
     <div class="quiz-prompt-sub">${w.pos||''}</div>
@@ -2143,7 +2237,7 @@ function renderTypingQuiz(w) {
     <div class="quiz-type-bar">
       <button onclick="setQuizType('ru-zh')" class="${quizType==='ru-zh'?'active':''}">外→中 选择</button>
       <button onclick="setQuizType('zh-ru')" class="${quizType==='zh-ru'?'active':''}">中→外 选择</button>
-      <button onclick="setQuizType('typing')" class="${quizType==='typing'?'active':''}">⌨️ 打字</button>
+      <button onclick="setQuizType('typing')" class="${quizType==='typing'?'active':''}"><i class="fa-solid fa-keyboard"></i> 打字</button>
     </div>
     <div class="quiz-prompt">${w.zh}</div>
     <div class="quiz-prompt-sub">${w.pos||''} · 请输入对应单词</div>
@@ -2168,14 +2262,14 @@ function submitTyping() {
   const fb = document.getElementById('quiz-feedback');
   if (isCorrect) {
     input.classList.add('correct-typing'); input.disabled = true;
-    fb.textContent = '✅ 完全正确！'; fb.className = 'quiz-feedback correct-fb';
+    fb.innerHTML = '<i class="fa-solid fa-circle-check"></i> 完全正确！' + (w.example?`<div class="quiz-example"><i class="fa-solid fa-quote-left"></i> ${w.example} <button class="btn-speak-inline" onclick="event.stopPropagation();speakWord('${w.example.replace(/'/g,"\\'").replace(/"/g,'&quot;')}')"><i class="fa-solid fa-volume-high"></i></button></div>`:''); fb.className = 'quiz-feedback correct-fb';
     w._correct = true;
     setSRS(w.id, updateProficiency('know', getSRS(w.id)));
     speakWord(w.ru);
     playSound('correct'); vibrate('correct');
   } else {
     input.classList.add('wrong-typing'); input.disabled = true;
-    fb.innerHTML = `❌ 正确答案是：<strong>${w.ru}</strong> ${w.tr||''}`;
+    fb.innerHTML = `<i class="fa-solid fa-circle-xmark"></i> 正确答案是：<strong>${w.ru}</strong> ${w.tr||''}` + (w.example?`<div class="quiz-example"><i class="fa-solid fa-quote-left"></i> ${w.example} <button class="btn-speak-inline" onclick="event.stopPropagation();speakWord('${w.example.replace(/'/g,"\\'").replace(/"/g,'&quot;')}')"><i class="fa-solid fa-volume-high"></i></button></div>`:'');
     fb.className = 'quiz-feedback wrong-fb';
     setSRS(w.id, updateProficiency('forgot', getSRS(w.id)));
     playSound('wrong'); vibrate('wrong');
@@ -2196,12 +2290,12 @@ function answerQuizChoice(selectedId) {
   });
   const fb = document.getElementById('quiz-feedback');
   if (isCorrect) {
-    fb.textContent = '✅ 正确！'; fb.className = 'quiz-feedback correct-fb';
+    fb.innerHTML = '<i class="fa-solid fa-circle-check"></i> 正确！' + (w.example?`<div class="quiz-example"><i class="fa-solid fa-quote-left"></i> ${w.example} <button class="btn-speak-inline" onclick="event.stopPropagation();speakWord('${w.example.replace(/'/g,"\\'").replace(/"/g,'&quot;')}')"><i class="fa-solid fa-volume-high"></i></button></div>`:''); fb.className = 'quiz-feedback correct-fb';
     w._correct = true;
     setSRS(w.id, updateProficiency('know', getSRS(w.id)));
     playSound('correct'); vibrate('correct');
   } else {
-    fb.innerHTML = quizType === 'zh-ru' ? `❌ 正确答案：<strong>${w.ru}</strong> ${w.tr||''} (${w.zh})` : '❌ 正确答案：' + w.zh;
+    fb.innerHTML = (quizType === 'zh-ru' ? `<i class="fa-solid fa-circle-xmark"></i> 正确答案：<strong>${w.ru}</strong> ${w.tr||''} (${w.zh})` : '<i class="fa-solid fa-circle-xmark"></i> 正确答案：' + w.zh) + (w.example?`<div class="quiz-example"><i class="fa-solid fa-quote-left"></i> ${w.example} <button class="btn-speak-inline" onclick="event.stopPropagation();speakWord('${w.example.replace(/'/g,"\\'").replace(/"/g,'&quot;')}')"><i class="fa-solid fa-volume-high"></i></button></div>`:'');
     fb.className = 'quiz-feedback wrong-fb';
     setSRS(w.id, updateProficiency('forgot', getSRS(w.id)));
     playSound('wrong'); vibrate('wrong');
@@ -2224,7 +2318,7 @@ function addFromDictionary(ru, tr, zh, pos) {
     showToast('该词已在当前词库中', ''); return;
   }
   const id = (crypto.randomUUID) ? crypto.randomUUID() : 'id-' + Date.now() + '-' + Math.random().toString(36).substr(2, 9);
-  WORDS.push({ id, ru, tr: tr || '', zh, pos: pos || '' });
+  WORDS.push({ id, ru, tr: tr || '', zh, pos: pos || '', example: '' });
   saveDeck();
   updateStats();
   refreshListResults();
@@ -2241,9 +2335,9 @@ function renderList() {
     document.getElementById('main-content').innerHTML = `
       <div style="display:flex;gap:8px;align-items:center;margin-bottom:12px;">
         <button class="btn btn-ghost btn-sm" onclick="toggleListDictionary()">← 返回词库</button>
-        <span style="font-size:13px;color:var(--text-secondary);">📖 内置词典 · ${(currentLang||{}).name||activeLang} · ${dictWords.length}词</span>
+        <span style="font-size:13px;color:var(--text-secondary);"><i class="fa-solid fa-book"></i> 内置词典 · ${(currentLang||{}).name||activeLang} · ${dictWords.length}词</span>
       </div>
-      <input type="text" class="search-bar" id="search-bar" placeholder="🔍 搜索词典..." value="${escHtml(listSearchQuery)}" oninput="onSearchInput(this.value)">
+      <input type="text" class="search-bar" id="search-bar" placeholder="<i class="fa-solid fa-magnifying-glass"></i> 搜索词典..." value="${escHtml(listSearchQuery)}" oninput="onSearchInput(this.value)">
       <div id="list-results" class="wordlist"></div>`;
     refreshListResults();
     return;
@@ -2252,17 +2346,17 @@ function renderList() {
   // ── Normal Word List Mode ──
   if (WORDS.length === 0) {
     document.getElementById('main-content').innerHTML = `<div class="empty-state">
-      <div style="font-size:40px;margin-bottom:12px;">📭</div>
+      <div style="font-size:40px;margin-bottom:12px;"><i class="fa-solid fa-inbox"></i></div>
       <div>还没有单词</div>
       <div style="margin-top:8px;">
-        <button class="btn btn-outline btn-sm" onclick="toggleListDictionary()">📖 浏览内置词典</button>
+        <button class="btn btn-outline btn-sm" onclick="toggleListDictionary()"><i class="fa-solid fa-book"></i> 浏览内置词典</button>
       </div>
     </div>`;
     return;
   }
   document.getElementById('main-content').innerHTML = `<div style="display:flex;gap:8px;align-items:center;margin-bottom:12px;">
-    <input type="text" class="search-bar" id="search-bar" style="margin-bottom:0;flex:1;" placeholder="🔍 搜索单词或中文..." value="${escHtml(listSearchQuery)}" oninput="onSearchInput(this.value)">
-    <button class="btn btn-ghost btn-sm" onclick="toggleListDictionary()" title="浏览内置词典">📖</button>
+    <input type="text" class="search-bar" id="search-bar" style="margin-bottom:0;flex:1;" placeholder="<i class="fa-solid fa-magnifying-glass"></i> 搜索单词或中文..." value="${escHtml(listSearchQuery)}" oninput="onSearchInput(this.value)">
+    <button class="btn btn-ghost btn-sm" onclick="toggleListDictionary()" title="浏览内置词典"><i class="fa-solid fa-book"></i></button>
   </div><div id="list-results" class="wordlist"></div>`;
   refreshListResults();
 }
@@ -2292,9 +2386,9 @@ function refreshListResults() {
           <span class="word-zh">${w[2]}</span>
           <span style="font-size:12px;color:var(--text-muted);">${w[3]||''}</span>
           <div class="word-actions">
-            <button class="btn-action speak-btn" onclick="speakWord('${w[0].replace(/'/g,"\\'")}')">🔊</button>
+            <button class="btn-action speak-btn" onclick="speakWord('${w[0].replace(/'/g,"\\'")}')"><i class="fa-solid fa-volume-high"></i></button>
             ${isAdded
-              ? '<span style="font-size:11px;color:var(--success);">✓</span>'
+              ? '<span style="font-size:11px;color:var(--success);"><i class="fa-solid fa-check"></i></span>'
               : `<button class="btn btn-outline btn-sm" style="padding:3px 8px;font-size:11px;" onclick="addFromDictionary('${w[0].replace(/'/g,"\\'")}','${(w[1]||'').replace(/'/g,"\\'")}','${w[2].replace(/'/g,"\\'")}','${(w[3]||'').replace(/'/g,"\\'")}')">+ 添加</button>`
             }
           </div>
@@ -2305,13 +2399,14 @@ function refreshListResults() {
     const q = listSearchQuery.toLowerCase();
     const filtered = WORDS.filter(w => !q || normalizeCompare(w.ru).includes(q) || w.zh.toLowerCase().includes(q) || (w.tr||'').toLowerCase().includes(q));
     resultsEl.innerHTML = filtered.map(w => `<div class="word-item">
-      <div class="word-left"><div><span class="word-ru">${w.ru}</span></div><div class="word-tr">${w.tr||''}</div><div class="word-srs"><span class="card-srs-badge ${getSRSBadgeClass(w.id)}">${getSRSLabel(w.id)}</span></div></div>
+      <div class="word-left"><div><span class="word-ru">${w.ru}</span></div><div class="word-tr">${w.tr||''}</div>${w.example?`<div class="word-example-truncated"><i class="fa-solid fa-quote-left"></i> ${w.example.length>45?w.example.slice(0,45)+'...':w.example}</div>`:''}<div class="word-srs"><span class="card-srs-badge ${getSRSBadgeClass(w.id)}">${getSRSLabel(w.id)}</span></div></div>
       <div style="display:flex;align-items:center;gap:10px;"><span class="word-zh">${w.zh}</span><span style="font-size:12px;color:var(--text-muted);">${w.pos||''}</span>
       <div class="word-actions">
-        <button class="btn-action star-btn" onclick="toggleStar('${w.id}');renderList();" style="color:${isStarred(w.id)?'#F59E0B':''};">${isStarred(w.id)?'⭐':'☆'}</button>
-        <button class="btn-action speak-btn" onclick="speakWord('${w.ru.replace(/'/g,"\\'")}')">🔊</button>
-        <button class="btn-action edit-btn" onclick="openEditModal('${w.id}')">✏️</button>
-        <button class="btn-action delete-btn" onclick="deleteWord('${w.id}')">🗑️</button>
+        <button class="btn-action star-btn" onclick="toggleStar('${w.id}');renderList();" style="color:${isStarred(w.id)?'#F59E0B':''};">${isStarred(w.id)?'<i class="fa-solid fa-star"></i>':'<i class="fa-regular fa-star"></i>'}</button>
+        <button class="btn-action speak-btn" onclick="speakWord('${w.ru.replace(/'/g,"\\'")}')"><i class="fa-solid fa-volume-high"></i></button>
+        ${w.example?`<button class="btn-action speak-btn" onclick="speakWord('${w.example.replace(/'/g,"\\'").replace(/"/g,'&quot;')}')" title="朗读例句" style="font-size:12px;"><i class="fa-solid fa-comment-dots"></i></button>`:''}
+        <button class="btn-action edit-btn" onclick="openEditModal('${w.id}')"><i class="fa-solid fa-pencil"></i></button>
+        <button class="btn-action delete-btn" onclick="deleteWord('${w.id}')"><i class="fa-solid fa-trash-can"></i></button>
       </div></div></div>`).join('') || '<div class="empty-state">没有匹配的单词</div>';
   }
 }
@@ -2329,9 +2424,19 @@ function openEditModal(wordId) {
   document.getElementById('edit-tr').value = w.tr || '';
   document.getElementById('edit-zh').value = w.zh;
   document.getElementById('edit-pos').value = w.pos || '';
+  document.getElementById('edit-example').value = w.example || '';
   document.getElementById('edit-modal').classList.add('show');
 }
 function closeEditModal() { editingWordId = null; document.getElementById('edit-modal').classList.remove('show'); }
+async function generateExampleInModal() {
+  if (!editingWordId) return;
+  const btn = document.getElementById('btn-gen-example-modal');
+  if (btn) { btn.disabled = true; btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i>'; }
+  await generateExample(editingWordId);
+  const w = WORDS.find(x => x.id === editingWordId);
+  if (w) document.getElementById('edit-example').value = w.example || '';
+  if (btn) { btn.disabled = false; btn.innerHTML = '<i class="fa-solid fa-wand-magic-sparkles"></i>'; }
+}
 function saveEdit() {
   if (!editingWordId) return;
   const w = WORDS.find(x => x.id === editingWordId); if (!w) return;
@@ -2339,7 +2444,8 @@ function saveEdit() {
   w.tr = document.getElementById('edit-tr').value.trim();
   w.zh = document.getElementById('edit-zh').value.trim() || w.zh;
   w.pos = document.getElementById('edit-pos').value.trim();
-  updateWordLocal(editingWordId, w.ru, w.tr, w.zh, w.pos);
+  w.example = document.getElementById('edit-example').value.trim();
+  updateWordLocal(editingWordId, w.ru, w.tr, w.zh, w.pos, w.example);
   closeEditModal();
   renderMain();
 }
@@ -2379,7 +2485,7 @@ function cleanField(s) {
 
 function parseLine(line) {
   line = line.trim(); if (!line) return null;
-  let ru = '', tr = '', zh = '', pos = '';
+  let ru = '', tr = '', zh = '', pos = '', example = '';
 
   // Helper: extract trailing parenthesized part-of-speech from a string
   const extractPos = (s) => {
@@ -2397,7 +2503,8 @@ function parseLine(line) {
       if (parts[idx] && /^\[.*\]$/.test(parts[idx])) { tr = parts[idx]; idx++; }
       if (parts[idx]) zh = cleanField(parts[idx]);
       if (parts[idx + 1]) pos = cleanField(parts[idx + 1]);
-      if (ru && zh) return { ru, tr, zh, pos };
+      if (parts[idx + 2]) example = cleanField(parts[idx + 2]);
+      if (ru && zh) return { ru, tr, zh, pos, example };
     }
   }
 
@@ -2409,7 +2516,8 @@ function parseLine(line) {
       if (parts[idx] && /^\[.*\]$/.test(parts[idx])) { tr = parts[idx]; idx++; }
       if (parts[idx]) zh = cleanField(parts[idx]);
       if (parts[idx + 1]) pos = cleanField(parts[idx + 1]);
-      if (ru && zh) return { ru, tr, zh, pos };
+      if (parts[idx + 2]) example = cleanField(parts[idx + 2]);
+      if (ru && zh) return { ru, tr, zh, pos, example };
     }
   }
 
@@ -2421,7 +2529,8 @@ function parseLine(line) {
       if (parts[idx] && /^\[.*\]$/.test(parts[idx])) { tr = parts[idx]; idx++; }
       if (parts[idx]) zh = cleanField(parts[idx]);
       if (parts[idx + 1]) pos = cleanField(parts[idx + 1]);
-      if (ru && zh) return { ru, tr, zh, pos };
+      if (parts[idx + 2]) example = cleanField(parts[idx + 2]);
+      if (ru && zh) return { ru, tr, zh, pos, example };
     }
   }
 
@@ -2432,7 +2541,7 @@ function parseLine(line) {
     const right = cleanField(line.slice(idx + 1));
     if (ru && right) {
       const ep = extractPos(right);
-      if (ru && ep.text) return { ru, tr, zh: ep.text, pos: ep.pos };
+      if (ru && ep.text) return { ru, tr, zh: ep.text, pos: ep.pos, example: '' };
     }
   }
 
@@ -2443,7 +2552,7 @@ function parseLine(line) {
     const right = cleanField(line.slice(idx + 1));
     if (ru && right) {
       const ep = extractPos(right);
-      if (ru && ep.text) return { ru, tr, zh: ep.text, pos: ep.pos };
+      if (ru && ep.text) return { ru, tr, zh: ep.text, pos: ep.pos, example: '' };
     }
   }
 
@@ -2454,7 +2563,7 @@ function parseLine(line) {
     const right = cleanField(line.slice(idx + 1));
     if (ru && right) {
       const ep = extractPos(right);
-      if (ru && ep.text) return { ru, tr, zh: ep.text, pos: ep.pos };
+      if (ru && ep.text) return { ru, tr, zh: ep.text, pos: ep.pos, example: '' };
     }
   }
 
@@ -2463,7 +2572,7 @@ function parseLine(line) {
   if (dashMatch) {
     ru = cleanField(dashMatch[1]);
     const ep = extractPos(cleanField(dashMatch[2]));
-    if (ru && ep.text) return { ru, tr, zh: ep.text, pos: ep.pos };
+    if (ru && ep.text) return { ru, tr, zh: ep.text, pos: ep.pos, example: '' };
   }
 
   // ── 8. Extract transcription bracket before main parse ──
@@ -2480,7 +2589,7 @@ function parseLine(line) {
   if (foreignSeq) {
     ru = cleanField(foreignSeq[1]);
     const ep = extractPos(cleanField(foreignSeq[2]));
-    if (ru && ep.text) return { ru, tr, zh: ep.text, pos: ep.pos };
+    if (ru && ep.text) return { ru, tr, zh: ep.text, pos: ep.pos, example: '' };
   }
 
   // If we have tr from step 8 but no zh yet, try to extract what remains
@@ -2513,7 +2622,7 @@ function showPreview(parsed) {
   tbody.innerHTML = parsed.map(p => {
     const isDup = existingSet.has(normalize(p.ru));
     if (isDup) dupCount++; else newCount++;
-    return `<tr><td class="col-ru">${p.ru} ${isDup?'<span class="tag tag-dup">重复</span>':'<span class="tag tag-new">新增</span>'}</td><td class="col-tr">${p.tr||''}</td><td class="col-zh">${p.zh}</td><td class="col-pos">${p.pos||''}</td></tr>`;
+    return `<tr><td class="col-ru">${p.ru} ${isDup?'<span class="tag tag-dup">重复</span>':'<span class="tag tag-new">新增</span>'}</td><td class="col-tr">${p.tr||''}</td><td class="col-zh">${p.zh}</td><td class="col-pos">${p.pos||''}</td><td class="col-example">${p.example||''}</td></tr>`;
   }).join('');
   countEl.innerHTML = `识别到 <strong>${parsed.length}</strong> 个单词（<span style="color:#1565c0;">${newCount} 新增</span>，<span style="color:#e65100;">${dupCount} 重复</span>）`;
   section.style.display = 'block'; confirmBtn.disabled = (newCount === 0);
@@ -2543,7 +2652,7 @@ function confirmImport() {
   for (const p of pendingImport) {
     if (existingSet.has(normalize(p.ru))) continue;
     const id = (crypto.randomUUID) ? crypto.randomUUID() : 'id-' + Date.now() + '-' + Math.random().toString(36).substr(2, 9);
-    targetWords.push({ id, ru: p.ru, tr: p.tr || '', zh: p.zh, pos: p.pos || '' });
+    targetWords.push({ id, ru: p.ru, tr: p.tr || '', zh: p.zh, pos: p.pos || '', example: p.example || '' });
     existingSet.add(normalize(p.ru)); added++;
   }
   if (targetFolderId !== activeFolderId) {
@@ -2598,8 +2707,8 @@ function parsePastedText() {
 
 function exportWords() {
   if (WORDS.length === 0) { alert('没有单词可导出'); return; }
-  const header = '单词\t音标\t中文\t词性';
-  const lines = WORDS.map(w => [w.ru, w.tr||'', w.zh, w.pos||''].join('\t'));
+  const header = '单词\t音标\t中文\t词性\t例句';
+  const lines = WORDS.map(w => [w.ru, w.tr||'', w.zh, w.pos||'', w.example||''].join('\t'));
   const currentLang = userLanguages.find(l => l.lang === activeLang);
   const currentFolder = folders.find(f => f.id === activeFolderId);
   const langName = currentLang ? currentLang.name : activeLang;
@@ -2632,7 +2741,7 @@ function addPresetLanguage(code) {
 function addCustomLanguage() {
   const name = document.getElementById('custom-lang-name').value.trim();
   const code = document.getElementById('custom-lang-code').value.trim() || name.toLowerCase().replace(/\s+/g,'-');
-  const flag = document.getElementById('custom-lang-flag').value.trim() || '🌐';
+  const flag = document.getElementById('custom-lang-flag').value.trim() || '<i class="fa-solid fa-globe"></i>';
   if (!name) { alert('请输入语言名称'); return; }
   if (userLanguages.find(l => l.lang === code)) { alert('该语言代码已存在'); return; }
   closeAddLangModal();
@@ -2682,12 +2791,12 @@ function applyTheme() {
   const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
   const isDark = saved ? saved === 'dark' : prefersDark;
   document.documentElement.classList.toggle('dark', isDark);
-  document.getElementById('btn-theme').textContent = isDark ? '☀️' : '🌙';
+  document.getElementById('btn-theme').innerHTML = isDark ? '<i class="fa-solid fa-sun"></i>' : '<i class="fa-solid fa-moon"></i>';
 }
 function toggleTheme() {
   const isDark = document.documentElement.classList.toggle('dark');
   localStorage.setItem('flashcards_theme', isDark ? 'dark' : 'light');
-  document.getElementById('btn-theme').textContent = isDark ? '☀️' : '🌙';
+  document.getElementById('btn-theme').innerHTML = isDark ? '<i class="fa-solid fa-sun"></i>' : '<i class="fa-solid fa-moon"></i>';
   if (currentMode === 'stats') renderStatsDashboard();
 }
 window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => {
@@ -2706,6 +2815,7 @@ function openSettings() {
   document.getElementById('setting-speech-rate').value = listenSpeechRate;
   document.getElementById('speech-rate-val').textContent = listenSpeechRate + 'x';
   document.getElementById('setting-repeat-count').value = listenRepeatCount;
+  document.getElementById('setting-api-key').value = getApiKey();
   document.getElementById('settings-panel').classList.add('show');
 }
 function closeSettings() { document.getElementById('settings-panel').classList.remove('show'); }
@@ -2730,6 +2840,12 @@ function updateRepeatCount(val) {
   listenRepeatCount = Math.max(1, Math.min(5, parseInt(val) || 1));
   localStorage.setItem('flashcards_repeat_count', listenRepeatCount);
 }
+function getApiKey() {
+  return localStorage.getItem('flashcards_api_key') || '';
+}
+function updateApiKey(val) {
+  localStorage.setItem('flashcards_api_key', (val || '').trim());
+}
 
 // ========================================================
 //  TOAST
@@ -2738,7 +2854,7 @@ function showToast(msg, type) {
   const container = document.getElementById('toast-container');
   const toast = document.createElement('div');
   toast.className = 'toast' + (type ? ' ' + type : '');
-  toast.textContent = msg;
+  toast.innerHTML = msg;
   container.appendChild(toast);
   setTimeout(() => { if (toast.parentNode) toast.remove(); }, 2500);
 }
@@ -2799,8 +2915,8 @@ function starredCount() { return WORDS.filter(w => isStarred(w.id)).length; }
 function exportStarredWords() {
   const starred = WORDS.filter(w => isStarred(w.id));
   if (starred.length === 0) { alert('还没有收藏的单词'); return; }
-  const header = '单词\t音标\t中文\t词性';
-  const lines = starred.map(w => [w.ru, w.tr||'', w.zh, w.pos||''].join('\t'));
+  const header = '单词\t音标\t中文\t词性\t例句';
+  const lines = starred.map(w => [w.ru, w.tr||'', w.zh, w.pos||'', w.example||''].join('\t'));
   const currentLang = userLanguages.find(l => l.lang === activeLang);
   const currentFolder = folders.find(f => f.id === activeFolderId);
   const langName = currentLang ? currentLang.name : activeLang;
@@ -2844,11 +2960,11 @@ function recordReview() {
   dailyGoal = data.dailyGoal;
   updateStreakUI();
   if (data.todayCount === data.dailyGoal) {
-    showToast('🎯 今日目标达成！', 'success');
+    showToast('<i class="fa-solid fa-bullseye"></i> 今日目标达成！', 'success');
     playSound('milestone'); vibrate('milestone');
   }
   if (data.currentStreak > 0 && data.todayCount === 1 && data.currentStreak % 7 === 0) {
-    showToast('🔥 连续 ' + data.currentStreak + ' 天打卡！', 'milestone');
+    showToast('<i class="fa-solid fa-fire"></i> 连续 ' + data.currentStreak + ' 天打卡！', 'milestone');
   }
 }
 function updateStreakUI() {
@@ -2951,28 +3067,28 @@ function renderStatsDashboard() {
       </div>
       <div class="stat-card">
         <div class="stat-value">${data.currentStreak || 0}</div>
-        <div class="stat-label">🔥 连续打卡</div>
+        <div class="stat-label"><i class="fa-solid fa-fire"></i> 连续打卡</div>
       </div>
       <div class="stat-card">
         <div class="stat-value">${WORDS.length}</div>
-        <div class="stat-label">📚 总词数</div>
+        <div class="stat-label"><i class="fa-solid fa-book-open"></i> 总词数</div>
       </div>
       <div class="stat-card">
         <div class="stat-value">${totalReviews}</div>
-        <div class="stat-label">📝 总复习次数</div>
+        <div class="stat-label"><i class="fa-solid fa-pen-to-square"></i> 总复习次数</div>
       </div>
       <div class="stat-card">
         <div class="stat-value">${masteryRate}%</div>
-        <div class="stat-label">✅ 掌握率</div>
+        <div class="stat-label"><i class="fa-solid fa-circle-check"></i> 掌握率</div>
       </div>
       <div class="stat-card">
         <div class="stat-value">${data.longestStreak || 0}</div>
-        <div class="stat-label">🏆 最长连续</div>
+        <div class="stat-label"><i class="fa-solid fa-trophy"></i> 最长连续</div>
       </div>
     </div>
-    <div class="chart-wrap fade-in"><h4>📊 每日复习 (最近30天)</h4><canvas id="bar-chart"></canvas></div>
-    <div class="chart-wrap fade-in"><h4>🍩 词汇分布</h4><canvas id="donut-chart"></canvas></div>
-    <div class="chart-wrap fade-in"><h4>📈 遗忘曲线预测 (未来7天)</h4><canvas id="forgetting-chart"></canvas></div>`;
+    <div class="chart-wrap fade-in"><h4><i class="fa-solid fa-chart-bar"></i> 每日复习 (最近30天)</h4><canvas id="bar-chart"></canvas></div>
+    <div class="chart-wrap fade-in"><h4><i class="fa-solid fa-chart-pie"></i> 词汇分布</h4><canvas id="donut-chart"></canvas></div>
+    <div class="chart-wrap fade-in"><h4><i class="fa-solid fa-chart-line"></i> 遗忘曲线预测 (未来7天)</h4><canvas id="forgetting-chart"></canvas></div>`;
 
   setTimeout(() => { drawBarChart(); drawDonutChart(); drawForgettingCurve(); animateCounters(); }, 100);
 }
@@ -3180,7 +3296,7 @@ function drawForgettingCurve() {
 // ========================================================
 function renderListen() {
   if (WORDS.length === 0) {
-    document.getElementById('main-content').innerHTML = '<div class="empty-state"><div style="font-size:40px;margin-bottom:12px;">🎧</div><div>还没有单词，请先导入单词</div></div>';
+    document.getElementById('main-content').innerHTML = '<div class="empty-state"><div style="font-size:40px;margin-bottom:12px;"><i class="fa-solid fa-headphones"></i></div><div>还没有单词，请先导入单词</div></div>';
     return;
   }
   if (listenIndex >= WORDS.length) listenIndex = 0;
@@ -3188,13 +3304,13 @@ function renderListen() {
   const currentFolder = folders.find(f => f.id === activeFolderId);
   document.getElementById('main-content').innerHTML = `<div class="listen-container fade-in">
     <div class="listen-status">
-      <span>📁 ${(currentFolder||{}).name||'默认'}</span>
+      <span><i class="fa-solid fa-folder"></i> ${(currentFolder||{}).name||'默认'}</span>
       <span style="color:var(--text-muted);">·</span>
       <span>${listenIndex+1}/${WORDS.length}</span>
-      ${listenLoopMode === 'next' ? '<span style="color:var(--primary);font-size:11px;">→ 自动切换</span>' : '<span style="color:var(--text-muted);font-size:11px;">🔁 本文件夹</span>'}
+      ${listenLoopMode === 'next' ? '<span style="color:var(--primary);font-size:11px;">→ 自动切换</span>' : '<span style="color:var(--text-muted);font-size:11px;"><i class="fa-solid fa-repeat"></i> 本文件夹</span>'}
     </div>
     <div class="listen-mode-toggle">
-      <button class="${listenLoopMode==='folder'?'active':''}" onclick="setListenLoopMode('folder')">🔁 本文件夹循环</button>
+      <button class="${listenLoopMode==='folder'?'active':''}" onclick="setListenLoopMode('folder')"><i class="fa-solid fa-repeat"></i> 本文件夹循环</button>
       <button class="${listenLoopMode==='next'?'active':''}" onclick="setListenLoopMode('next')">→ 切换下一文件夹</button>
     </div>
     <div class="listen-card">
@@ -3208,7 +3324,7 @@ function renderListen() {
     </div>
     <div class="listen-progress">剩余重复 ${listenRepeatRemaining} 次 · 语速 ${listenSpeechRate}x</div>
     <div class="listen-timer-section">
-      <span>⏰ 定时关闭</span>
+      <span><i class="fa-solid fa-clock"></i> 定时关闭</span>
       <select class="listen-timer-select" id="listen-timer-select" onchange="setListenTimerDuration(this.value)" value="${listenTimerDuration}">
         <option value="0" ${listenTimerDuration===0?'selected':''}>关闭</option>
         <option value="300" ${listenTimerDuration===300?'selected':''}>5 分钟</option>
@@ -3223,11 +3339,11 @@ function renderListen() {
     <div class="listen-controls">
       <button class="btn-listen-sm" onclick="listenPrev()" title="上一个">⏮</button>
       <button class="btn-listen ${listenPlaying?'':'paused'}" id="btn-listen-play" onclick="toggleListening()">
-        ${listenPlaying ? '⏸' : '▶'}
+        ${listenPlaying ? '<i class="fa-solid fa-pause"></i>' : '<i class="fa-solid fa-play"></i>'}
       </button>
       <button class="btn-listen-sm" onclick="listenNext()" title="下一个">⏭</button>
     </div>
-    <button class="btn btn-ghost btn-sm" onclick="speakWord('${w.ru.replace(/'/g,"\\'")}')">🔊 手动朗读</button>
+    <button class="btn btn-ghost btn-sm" onclick="speakWord('${w.ru.replace(/'/g,"\\'")}')"><i class="fa-solid fa-volume-high"></i> 手动朗读</button>
   </div>`;
   setTimeout(updateTimerDisplay, 50);
 }
@@ -3246,7 +3362,7 @@ function startListening() {
   listenPlaying = true;
   if (listenRepeatRemaining <= 0) listenRepeatRemaining = listenRepeatCount;
   const btn = document.getElementById('btn-listen-play');
-  if (btn) { btn.textContent = '⏸'; btn.classList.remove('paused'); }
+  if (btn) { btn.innerHTML = '<i class="fa-solid fa-pause"></i>'; btn.classList.remove('paused'); }
   if (listenTimerDuration > 0) startListenTimer();
   playCurrentWord();
 }
@@ -3258,7 +3374,7 @@ function stopListening() {
   window.speechSynthesis.cancel();
   stopListenTimer();
   const btn = document.getElementById('btn-listen-play');
-  if (btn) { btn.textContent = '▶'; btn.classList.add('paused'); }
+  if (btn) { btn.innerHTML = '<i class="fa-solid fa-play"></i>'; btn.classList.add('paused'); }
 }
 
 function startListenTimer() {
@@ -3271,7 +3387,7 @@ function startListenTimer() {
     updateTimerDisplay();
     if (listenTimerRemaining <= 0) {
       stopListening();
-      showToast('⏰ 定时关闭，听力已停止', '');
+      showToast('<i class="fa-solid fa-clock"></i> 定时关闭，听力已停止', '');
     }
   }, 1000);
 }
@@ -3336,7 +3452,7 @@ function playCurrentWord() {
   const w = WORDS[listenIndex];
   speakWord(w.ru);
   listenRepeatRemaining--;
-  document.getElementById('btn-listen-play').textContent = '⏸';
+  document.getElementById('btn-listen-play').innerHTML = '<i class="fa-solid fa-pause"></i>';
   // Wait for speech to finish, then continue
   const checkSpeechEnd = setInterval(() => {
     if (!listenPlaying || !window.speechSynthesis.speaking) {
@@ -3542,11 +3658,11 @@ function quizHitCombo() {
   quizComboEl.style.animation = 'none';
   quizComboEl.offsetHeight;
   let text = '';
-  if (quizCombo >= 10) { text = '🔥 ' + quizCombo + ' 连击！太强了！'; quizComboEl.className = 'quiz-combo fire'; quizComboEl.style.animation = 'comboShake .4s ease'; }
-  else if (quizCombo >= 5) { text = '⚡ ' + quizCombo + ' 连击！'; quizComboEl.className = 'quiz-combo fire'; }
-  else if (quizCombo >= 3) { text = '✨ ' + quizCombo + ' 连击'; quizComboEl.className = 'quiz-combo'; }
-  else { text = '👍 连续正确 ×' + quizCombo; quizComboEl.className = 'quiz-combo'; }
-  quizComboEl.textContent = text;
+  if (quizCombo >= 10) { text = '<i class="fa-solid fa-fire"></i> ' + quizCombo + ' 连击！太强了！'; quizComboEl.className = 'quiz-combo fire'; quizComboEl.style.animation = 'comboShake .4s ease'; }
+  else if (quizCombo >= 5) { text = '<i class="fa-solid fa-bolt"></i> ' + quizCombo + ' 连击！'; quizComboEl.className = 'quiz-combo fire'; }
+  else if (quizCombo >= 3) { text = '<i class="fa-solid fa-sparkles"></i> ' + quizCombo + ' 连击'; quizComboEl.className = 'quiz-combo'; }
+  else { text = '<i class="fa-solid fa-thumbs-up"></i> 连续正确 ×' + quizCombo; quizComboEl.className = 'quiz-combo'; }
+  quizComboEl.innerHTML = text;
   quizComboEl.style.animation = 'comboIn .3s ease';
 }
 

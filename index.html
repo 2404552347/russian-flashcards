@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0, user-scalable=yes, viewport-fit=cover">
 <title>多语言单词闪卡</title>
 <script src="https://cdn.jsdelivr.net/npm/mammoth@1.6.0/mammoth.browser.min.js"></script>
+	<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
 	<link rel="stylesheet" href="css/style.css">
 </head>
 <body>
@@ -15,7 +16,7 @@
 <div id="auth-screen" class="auth-overlay">
   <div class="auth-card">
     <div class="auth-header">
-      <h1>📚 多语言闪卡</h1>
+      <h1><i class="fa-solid fa-book-open"></i> 多语言闪卡</h1>
       <p>Multi-language flashcard study app</p>
     </div>
     <div class="auth-tabs">
@@ -67,15 +68,15 @@
 <div id="app-screen">
   <header>
     <div class="header-top">
-      <h2>📚 多语言闪卡 <span class="streak-badge" id="streak-badge" style="display:none;">🔥 <span id="streak-count">0</span></span></h2>
+      <h2><i class="fa-solid fa-book-open"></i> 多语言闪卡 <span class="streak-badge" id="streak-badge" style="display:none;"><i class="fa-solid fa-fire"></i> <span id="streak-count">0</span></span></h2>
       <div class="header-right">
-        <button class="btn-theme" id="btn-theme" onclick="toggleTheme()" title="切换主题">🌙</button>
+        <button class="btn-theme" id="btn-theme" onclick="toggleTheme()" title="切换主题"><i class="fa-solid fa-moon"></i></button>
         <span class="user-info">
           <span id="current-user" class="user-name"></span>
-          <button class="btn-icon" onclick="logoutAccount()" title="切换账户 / 退出">🚪</button>
+          <button class="btn-icon" onclick="logoutAccount()" title="切换账户 / 退出"><i class="fa-solid fa-right-from-bracket"></i></button>
         </span>
-        <button class="btn-icon" onclick="openImportModal()">📥</button>
-        <button class="btn-icon" onclick="openSettings()" title="设置">⚙️</button>
+        <button class="btn-icon" onclick="openImportModal()"><i class="fa-solid fa-file-import"></i></button>
+        <button class="btn-icon" onclick="openSettings()" title="设置"><i class="fa-solid fa-gear"></i></button>
       </div>
     </div>
     <div class="lang-tabs-wrap">
@@ -90,11 +91,11 @@
   </div>
 
   <div class="stats" id="stats-bar">
-    <span>⏳ 待复习 <strong id="stat-due">0</strong></span>
-    <span>📅 学习中 <strong id="stat-learning">0</strong></span>
-    <span>✅ 已掌握 <strong id="stat-mastered">0</strong></span>
-    <span>📝 新词 <strong id="stat-new">0</strong></span>
-    <span>📚 总计 <strong id="stat-total">0</strong></span>
+    <span><i class="fa-solid fa-hourglass-half"></i> 待复习 <strong id="stat-due">0</strong></span>
+    <span><i class="fa-solid fa-calendar"></i> 学习中 <strong id="stat-learning">0</strong></span>
+    <span><i class="fa-solid fa-circle-check"></i> 已掌握 <strong id="stat-mastered">0</strong></span>
+    <span><i class="fa-solid fa-pen-to-square"></i> 新词 <strong id="stat-new">0</strong></span>
+    <span><i class="fa-solid fa-book-open"></i> 总计 <strong id="stat-total">0</strong></span>
   </div>
 
   <div class="network-info" id="network-info" style="display:none;">
@@ -105,19 +106,19 @@
 
   <div class="bottom-nav">
     <button class="nav-item active" id="nav-flashcard" onclick="setMode('flashcard')">
-      <span class="nav-icon">🃏</span>闪卡
+      <span class="nav-icon"><i class="fa-solid fa-layer-group"></i></span>闪卡
     </button>
     <button class="nav-item" id="nav-quiz" onclick="setMode('quiz')">
-      <span class="nav-icon">🎯</span>测验
+      <span class="nav-icon"><i class="fa-solid fa-bullseye"></i></span>测验
     </button>
     <button class="nav-item" id="nav-list" onclick="setMode('list')">
-      <span class="nav-icon">📋</span>词汇表
+      <span class="nav-icon"><i class="fa-solid fa-list-check"></i></span>词汇表
     </button>
     <button class="nav-item" id="nav-listen" onclick="setMode('listen')">
-      <span class="nav-icon">🎧</span>听力
+      <span class="nav-icon"><i class="fa-solid fa-headphones"></i></span>听力
     </button>
     <button class="nav-item" id="nav-stats" onclick="setMode('stats')">
-      <span class="nav-icon">📊</span>统计
+      <span class="nav-icon"><i class="fa-solid fa-chart-bar"></i></span>统计
     </button>
   </div>
 
@@ -127,7 +128,7 @@
 <!-- Settings Panel -->
 <div class="settings-panel" id="settings-panel">
   <div class="settings-sheet">
-    <h3>⚙️ 设置</h3>
+    <h3><i class="fa-solid fa-gear"></i> 设置</h3>
     <div class="settings-row">
       <div><label>每日目标</label><div class="setting-desc">每天需要复习的单词数</div></div>
       <input type="number" class="setting-input" id="setting-daily-goal" min="5" max="200" value="20" onchange="updateDailyGoal(this.value)">
@@ -173,11 +174,15 @@
       <input type="number" class="setting-input" id="setting-repeat-count" min="1" max="5" value="1" onchange="updateRepeatCount(this.value)">
     </div>
     <div class="settings-row">
-      <button class="btn btn-outline btn-sm" onclick="exportWords()" style="flex:1;margin-right:8px;">📤 导出全部</button>
-      <button class="btn btn-outline btn-sm" onclick="exportStarredWords()" style="flex:1;margin-left:8px;">⭐ 导出收藏</button>
+      <div><label>AI API Key</label><div class="setting-desc">用于生成例句，key 仅存在本地浏览器</div></div>
+      <input type="password" class="setting-input" id="setting-api-key" placeholder="sk-ant-..." onchange="updateApiKey(this.value)" style="font-size:12px;font-family:monospace;">
+    </div>
+    <div class="settings-row">
+      <button class="btn btn-outline btn-sm" onclick="exportWords()" style="flex:1;margin-right:8px;"><i class="fa-solid fa-file-export"></i> 导出全部</button>
+      <button class="btn btn-outline btn-sm" onclick="exportStarredWords()" style="flex:1;margin-left:8px;"><i class="fa-solid fa-star"></i> 导出收藏</button>
     </div>
     <div class="settings-row" style="border:none;padding-top:12px;">
-      <button class="btn btn-danger btn-sm" onclick="closeSettings();deleteCurrentDeck();">🗑️ 删除此语言</button>
+      <button class="btn btn-danger btn-sm" onclick="closeSettings();deleteCurrentDeck();"><i class="fa-solid fa-trash-can"></i> 删除此语言</button>
     </div>
     <div style="text-align:center;margin-top:12px;">
       <button class="btn btn-ghost btn-sm" onclick="closeSettings()">关闭</button>
@@ -194,7 +199,7 @@
   <div class="modal">
     <div class="modal-header">
       <h3>导入单词到 <span id="import-deck-name"></span></h3>
-      <button class="modal-close" onclick="closeImportModal()">✕</button>
+      <button class="modal-close" onclick="closeImportModal()"><i class="fa-solid fa-xmark"></i></button>
     </div>
     <div class="modal-body">
       <div class="form-group" style="margin-bottom:12px;">
@@ -205,7 +210,7 @@
         </div>
       </div>
       <div class="drop-zone" id="drop-zone" onclick="document.getElementById('file-input').click()">
-        <div class="dz-icon">📄</div>
+        <div class="dz-icon"><i class="fa-solid fa-file-lines"></i></div>
         <div class="dz-text">点击上传或拖拽文件到此处</div>
         <div class="dz-hint">支持 .docx / .txt 文件</div>
         <input type="file" id="file-input" accept=".docx,.txt" onchange="handleFile(event)">
@@ -221,7 +226,7 @@
         </div>
         <div style="max-height: 280px; overflow-y: auto;">
           <table class="preview-table">
-            <thead><tr><th>单词</th><th>音标</th><th>中文</th><th>词性</th></tr></thead>
+            <thead><tr><th>单词</th><th>音标</th><th>中文</th><th>词性</th><th>例句</th></tr></thead>
             <tbody id="preview-tbody"></tbody>
           </table>
         </div>
@@ -239,13 +244,14 @@
   <div class="modal">
     <div class="modal-header">
       <h3>编辑单词</h3>
-      <button class="modal-close" onclick="closeEditModal()">✕</button>
+      <button class="modal-close" onclick="closeEditModal()"><i class="fa-solid fa-xmark"></i></button>
     </div>
     <div class="modal-body">
       <div class="form-group"><label>单词</label><input type="text" id="edit-ru" placeholder="单词"></div>
       <div class="form-group"><label>音标</label><input type="text" id="edit-tr" placeholder="音标"></div>
       <div class="form-group"><label>中文</label><input type="text" id="edit-zh" placeholder="中文释义"></div>
       <div class="form-group"><label>词性</label><input type="text" id="edit-pos" placeholder="词性"></div>
+      <div class="form-group"><label>例句</label><div style="display:flex;gap:8px;"><input type="text" id="edit-example" placeholder="例句（可手动输入或AI生成）" style="flex:1;"><button class="btn btn-outline btn-sm" id="btn-gen-example-modal" onclick="generateExampleInModal()" title="AI 生成例句"><i class="fa-solid fa-wand-magic-sparkles"></i></button></div></div>
     </div>
     <div class="modal-footer">
       <button class="btn btn-ghost" onclick="closeEditModal()">取消</button>
@@ -259,7 +265,7 @@
   <div class="modal">
     <div class="modal-header">
       <h3>添加语言</h3>
-      <button class="modal-close" onclick="closeAddLangModal()">✕</button>
+      <button class="modal-close" onclick="closeAddLangModal()"><i class="fa-solid fa-xmark"></i></button>
     </div>
     <div class="modal-body">
       <p style="font-size:13px;color:#888;margin-bottom:12px;">选择预设语言模板，或自定义新语言</p>
@@ -278,7 +284,7 @@
 
 <!-- Loading Overlay -->
 <div class="loading-overlay" id="loading-overlay" style="display:none;">
-  <div>⏳ 加载中...</div>
+  <div><i class="fa-solid fa-hourglass-half"></i> 加载中...</div>
 </div>
 
 	<script src="js/app.js"></script>
