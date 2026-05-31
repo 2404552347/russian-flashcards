@@ -2434,15 +2434,11 @@ function startBrowseMode() {
   renderFlashcard();
 }
 
-function exitSession() {
-  sessionActive = false;
+function goBackToSessionStart() {
   sessionMode = false;
-  sessionQueue = [];
-  sessionCompletedWords = [];
-  sessionCorrectFirstTry = [];
-  sessionTotalAttempts = 0;
-  sessionWordAttempts = {};
-  saveDailySession();
+  sessionActive = false;
+  flashcardIndex = 0;
+  flashcardFilter = 'all';
   renderSessionStart();
 }
 
@@ -2479,7 +2475,6 @@ function renderSessionCard() {
       <div class="session-progress-top">
         <span><i class="fa-solid fa-check-circle"></i> 已掌握 <strong>${mastered}</strong> 词</span>
         <span><i class="fa-solid fa-layer-group"></i> 队列 <strong>${inQueue}</strong> 词</span>
-        <button class="btn-exit-session" onclick="event.stopPropagation();exitSession()" title="退出复习"><i class="fa-solid fa-xmark"></i></button>
       </div>
       <div class="session-progress-bar">
         <div class="session-progress-fill" style="width:${progressPct}%"></div>
@@ -2666,6 +2661,7 @@ function renderFlashcard() {
   if (flashcardPool.length === 0) {
     const msgs = { due: '没有待复习的单词！', learning: '没有学习中的单词！', new: '没有新单词！', mastered: '还没有已掌握的单词！', all: '没有单词！', starred: '还没有收藏的单词！' };
     document.getElementById('main-content').innerHTML = `<div class="flashcard-container">
+      <button class="btn-back-to-session" onclick="goBackToSessionStart()"><i class="fa-solid fa-arrow-left"></i> 返回今日复习</button>
       <div class="filter-bar">${['all','due','learning','new','mastered','starred'].map(f =>
         `<button onclick="setFlashcardFilter('${f}')" class="${flashcardFilter===f?'active':''}">${f==='all'?'全部':f==='due'?'<i class="fa-solid fa-hourglass-half"></i>待复习':f==='learning'?'<i class="fa-solid fa-calendar"></i>学习中':f==='new'?'<i class="fa-solid fa-pen-to-square"></i>新词':f==='mastered'?'<i class="fa-solid fa-circle-check"></i>已掌握':'<i class="fa-solid fa-star"></i>收藏'}</button>`
       ).join('')}</div>
@@ -2679,6 +2675,7 @@ function renderFlashcard() {
   const starredClass = isStarred(w.id) ? 'is-starred' : '';
 
   document.getElementById('main-content').innerHTML = `<div class="flashcard-container card-enter">
+    <button class="btn-back-to-session" onclick="goBackToSessionStart()"><i class="fa-solid fa-arrow-left"></i> 返回今日复习</button>
     <div class="filter-bar">${['all','due','learning','new','mastered','starred'].map(f =>
       `<button onclick="setFlashcardFilter('${f}')" class="${flashcardFilter===f?'active':''}">${f==='all'?'全部':f==='due'?'<i class="fa-solid fa-hourglass-half"></i>'+countByCategory('due'):f==='learning'?'<i class="fa-solid fa-calendar"></i>'+countByCategory('learning'):f==='new'?'<i class="fa-solid fa-pen-to-square"></i>'+countByCategory('new'):f==='mastered'?'<i class="fa-solid fa-circle-check"></i>'+countByCategory('mastered'):'<i class="fa-solid fa-star"></i>'+starredCount()}</button>`
     ).join('')}</div>
