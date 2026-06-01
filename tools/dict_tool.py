@@ -598,6 +598,78 @@ def validate_json():
     else:
         print(f"\n✅ All files valid (0 errors)")
 
+# ── Fix Russian Stress Marks ──────────────────────────────────
+def fix_stress():
+    """Add correct stress marks to existing Russian words using OpenRussian dict.
+    0 AI token cost — pure dictionary lookup."""
+    repo_dir = DICT_DIR / "russian-dictionary"
+    csv_files = list(repo_dir.glob("*.csv"))
+    if not csv_files:
+        print("❌ OpenRussian CSV files not found. Run: python3 tools/dict_tool.py download ru")
+        return
+
+    # Build bare→accented lookup from all CSVs
+    print("📖 Building stress dictionary from OpenRussian CSVs...")
+    stress_map = {}  # bare_word → accented_with_combining_acute
+    for csv_path in csv_files:
+        with open(csv_path, encoding='utf-8') as f:
+            header = f.readline().strip().split('\t')
+            try:
+                accented_idx = header.index('accented')
+                bare_idx = header.index('bare')
+            except ValueError:
+                continue
+            for line in f:
+                cols = line.strip().split('\t')
+                if len(cols) < max(accented_idx, bare_idx) + 1:
+                    continue
+                bare = cols[bare_idx].strip()
+                accented_raw = cols[accented_idx].strip()
+                if bare and accented_raw and len(bare) >= 2 and ' ' not in bare:
+                    # Only store if accented form has stress info (apostrophe)
+                    if "'" in accented_raw and bare not in stress_map:
+                        stress_map[bare] = convert_stress(accented_raw)
+
+    print(f"   Loaded {len(stress_map):,} stressed words")
+
+    # Load Russian JSON
+    data = load_json('ru')
+    total = 0
+    fixed = 0
+    skipped_stress = 0
+    not_found = 0
+
+    for level_key, level_data in data.items():
+        words = level_data['words']
+        for i, w in enumerate(words):
+            total += 1
+            word = w[0]
+
+            # Already has combining acute accent?
+            if '́' in word:
+                skipped_stress += 1
+                continue
+
+            # Normalize (remove any other stress marks) and look up
+            bare = word.replace("'", "").replace("́", "").replace("̀", "")
+            if bare in stress_map:
+                accented = stress_map[bare]
+                # Also copy English translation from dict if current is empty
+                # (skip — we only fix stress, don't overwrite translations)
+                if accented != word:
+                    w[0] = accented
+                    fixed += 1
+            else:
+                not_found += 1
+
+    save_json('ru', data)
+
+    print(f"\n📊 Results:")
+    print(f"   Total words: {total:,}")
+    print(f"   Already had stress: {skipped_stress:,}")
+    print(f"   ✅ Fixed (added stress): {fixed:,}")
+    print(f"   ⚠️  Not in dictionary: {not_found:,}")
+
 # ── CLI ──────────────────────────────────────────────────────
 def main():
     if len(sys.argv) < 2:
@@ -629,6 +701,9 @@ def main():
 
     elif cmd == "stats":
         show_stats()
+
+    elif cmd == "fix-stress":
+        fix_stress()
 
     elif cmd == "validate":
         validate_json()
