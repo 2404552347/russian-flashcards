@@ -313,7 +313,7 @@ function loadFullApp(username) {
     '<i class="fa-solid fa-spinner fa-spin"></i> 加载中...</div>';
   // Dynamically load the full app
   const script = document.createElement('script');
-  script.src = 'js/app.js?v=12';
+  script.src = 'js/app.js?v=13';
   script.onload = () => { _appLoaded = true; };
   script.onerror = () => {
     document.getElementById('main-content').innerHTML =
