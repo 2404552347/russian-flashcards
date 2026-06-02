@@ -289,6 +289,10 @@ async function handleRegister() {
 async function detectLocalIP() {
   const el = document.getElementById('network-info');
   const urlEl = document.getElementById('local-ip-url');
+  // Only useful for local dev server — skip on mobile / production
+  if (window.location.hostname !== 'localhost' && !window.location.hostname.startsWith('192.168.') && !window.location.hostname.startsWith('10.') && !window.location.hostname.startsWith('172.')) {
+    return;
+  }
   try {
     const pc = new RTCPeerConnection({ iceServers: [] });
     pc.createDataChannel('');
@@ -304,8 +308,7 @@ async function detectLocalIP() {
     });
     pc.close();
     if (ip) { urlEl.textContent = 'http://' + ip + ':8080'; el.style.display = ''; }
-    else { urlEl.textContent = '无法检测，请查看系统网络设置'; el.style.display = ''; }
-  } catch(e) { urlEl.textContent = '无法检测，请查看系统网络设置'; el.style.display = ''; }
+  } catch(e) { /* silent — don't show confusing error to users */ }
 }
 
 function enterApp(username) {
