@@ -4,6 +4,69 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0, user-scalable=yes, viewport-fit=cover">
 <title>多语言单词闪卡</title>
+	<!-- Critical CSS: inlined for instant first paint (auth screen) -->
+	<style>
+	  :root {
+	    --primary:#00BC71;--primary-hover:#00A862;--primary-light:#E6F9F2;
+	    --success:#10B981;--danger:#EF4444;--danger-hover:#DC2626;--danger-light:#FEF2F2;
+	    --bg:#FAFAF9;--bg-secondary:#F0F2EF;--card:#FFFFFF;--text:#1A1A1A;
+	    --text-secondary:#6B7280;--text-muted:#9CA3AF;--border:#E5E7EB;--border-light:#F3F4F6;
+	    --shadow-sm:0 1px 2px rgba(0,0,0,.04);--shadow:0 1px 3px rgba(0,0,0,.06),0 1px 2px rgba(0,0,0,.04);
+	    --shadow-md:0 4px 12px rgba(0,0,0,.06),0 2px 4px rgba(0,0,0,.04);
+	    --radius-sm:8px;--radius:12px;--radius-lg:16px;
+	    --text-xs:11px;--text-sm:13px;--text-base:15px;--text-xl:22px;
+	    --space-xs:4px;--space-sm:8px;--space:12px;--space-lg:20px;--space-xl:24px;--space-2xl:32px;
+	    --transition:.25s ease;--transition-fast:.18s ease;
+	    --font-normal:400;--font-medium:500;--font-semibold:600;--font-bold:700;--font-extrabold:800;
+	    --leading-normal:1.5;--leading-tight:1.25;
+	  }
+	  html.dark {
+	    --bg:#161C22;--bg-secondary:#1A2229;--card:#1E262F;--text:#E8ECF0;
+	    --text-secondary:#8B959F;--text-muted:#5F6A75;--border:#2D3745;--border-light:#232B35;
+	    --shadow-sm:0 1px 2px rgba(0,0,0,.3);--shadow:0 1px 3px rgba(0,0,0,.4);
+	    --shadow-md:0 4px 12px rgba(0,0,0,.4);--primary-light:#1A3D2E;
+	  }
+	  *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+	  html{-webkit-tap-highlight-color:transparent}
+	  body {
+	    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif;
+	    background:var(--bg);color:var(--text);min-height:100vh;line-height:var(--leading-normal);
+	    font-size:var(--text-base);-webkit-font-smoothing:antialiased;overscroll-behavior-y:contain;
+	  }
+	  #confetti-canvas{position:fixed;inset:0;pointer-events:none;z-index:999}
+	  /* Buttons */
+	  .btn{border:none;padding:12px 28px;border-radius:var(--radius);font-size:var(--text-base);font-weight:600;cursor:pointer;transition:all var(--transition-fast);text-align:center}
+	  .btn:active{transform:scale(.97)}
+	  .btn-primary{background:var(--primary);color:#fff;width:100%}
+	  .btn-primary:hover{background:var(--primary-hover);box-shadow:var(--shadow-md)}
+	  .btn-ghost{background:transparent;color:var(--text-secondary);padding:8px 16px;font-size:14px;font-weight:500}
+	  .btn-ghost:hover{background:var(--border-light);color:var(--text)}
+	  .btn-sm{padding:8px 18px;font-size:var(--text-sm);font-weight:500;border-radius:var(--radius-sm)}
+	  .btn-danger{background:var(--danger);color:#fff;border:none;padding:10px 20px;border-radius:var(--radius-sm);font-size:14px;font-weight:600;cursor:pointer;transition:all var(--transition-fast)}
+	  .btn-danger:hover{background:var(--danger-hover)}
+	  /* Forms */
+	  .form-group{margin-bottom:14px}
+	  .form-group label{display:block;font-size:var(--text-sm);font-weight:600;color:var(--text-secondary);margin-bottom:var(--space-xs)}
+	  .form-group input{width:100%;padding:10px 12px;border:1.5px solid var(--border);border-radius:var(--radius-sm);font-size:var(--text-base);font-family:inherit;transition:all var(--transition-fast);background:var(--card);color:var(--text)}
+	  .form-group input:focus{outline:none;border-color:var(--primary);box-shadow:0 0 0 3px rgba(0,188,113,.1)}
+	  /* Auth screen */
+	  .auth-overlay{display:flex;position:fixed;inset:0;z-index:300;background:var(--bg);align-items:center;justify-content:center;flex-direction:column;padding:var(--space-lg)}
+	  .auth-card{background:var(--card);border-radius:var(--radius-lg);box-shadow:var(--shadow);width:100%;max-width:380px;padding:var(--space-2xl) var(--space-2xl) 28px}
+	  .auth-header{text-align:center;margin-bottom:var(--space-xl)}
+	  .auth-header h1{font-size:var(--text-xl);font-weight:700;margin-bottom:var(--space-xs)}
+	  .auth-header p{font-size:var(--text-sm);color:var(--text-muted)}
+	  .auth-tabs{display:flex;gap:4px;background:var(--border-light);border-radius:var(--radius-sm);padding:3px;margin-bottom:var(--space-lg)}
+	  .auth-tabs button{flex:1;border:none;background:transparent;padding:var(--space-sm);border-radius:var(--radius-sm);font-size:14px;cursor:pointer;color:var(--text-secondary);font-weight:500;transition:all var(--transition-fast)}
+	  .auth-tabs button.active{background:var(--card);color:var(--text);box-shadow:var(--shadow-sm)}
+	  .auth-form{margin-bottom:6px}
+	  .auth-error{color:var(--danger);font-size:var(--text-sm);min-height:20px;margin-bottom:10px}
+	  .account-list{margin-top:var(--space-xl);padding-top:var(--space-lg);border-top:1px solid var(--border)}
+	  .account-list-label{font-size:var(--text-xs);color:var(--text-muted);margin-bottom:var(--space-sm);text-transform:uppercase;letter-spacing:.5px}
+	  .account-item{display:block;width:100%;text-align:left;padding:10px 14px;border-radius:var(--radius-sm);margin-bottom:4px;border:1.5px solid transparent;cursor:pointer;font-size:14px;font-weight:500;transition:all var(--transition-fast)}
+	  .account-item:hover{background:var(--border-light);border-color:var(--border)}
+	  /* Auth screen hides the app */
+	  #auth-screen:not([style*="display: none"]) ~ #app-screen{display:none!important}
+	</style>
 <!-- PWA -->
 <link rel="manifest" href="manifest.json">
 <meta name="theme-color" content="#00BC71">
@@ -22,8 +85,9 @@
 	<link rel="preload" as="style" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
 	<link rel="preload" as="style" href="css/style.css?v=9">
 	<!-- Apply (preloaded resources hit cache, zero re-download) -->
-	<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+		<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css" media="print" onload="this.media='all'">
 	<link rel="stylesheet" href="css/style.css?v=9">
+		<noscript><link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css"></noscript>
 </head>
 <body>
 
