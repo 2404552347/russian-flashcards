@@ -1,3 +1,18 @@
+/* ==========================================================================
+   TOC — jump directly by line number:
+   ── Account:  session/storage/1  register/login/101  auth UI/189
+   ── Data:  migration/141  folders/443  default words/514  app state/1737
+   ── Utils:  utils/1780  SRS/1858  session storage/1942
+   ── Render:  lang tabs/2172  navigation/2224  flashcards/2336  quiz/2932
+     memory-game/3102  word-list/3328  stats/4125  listening/4367
+   ── Features:  import-export/3631  theme/3865  settings/3885  toast/3923
+     sound/3935  haptic/3959  star/3969  streak/4004  swipe/4053
+   ── Init:  init()/4572  confetti/4626  ripple/4702
+   Key fns:  enterApp()/302  showAuthScreen()/190  renderAll()/2218
+     setMode()/2227  speakWord()/2039  buildDailySessionPool()/2277
+     updateProficiency()/1876  parseLine()/3512  confirmImport()/3674
+   ========================================================================== */
+
 // ========================================================
 //  ACCOUNT SYSTEM -- SESSION & STORAGE INFRASTRUCTURE
 // ========================================================

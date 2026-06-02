@@ -1,3 +1,13 @@
+/* ==========================================================================
+   TOC — jump directly: :root vars/1  html.dark/45  reset/50  buttons/83
+   stage-btns/100  card/245  answer/304  progress-bar/328  quiz/331  word-list/367
+   word-packs/391  empty-state/437  bottom-nav/441  settings/474  toast/522
+   listening/534  stats/580  modals/616  auth-screen/739  folder-tabs/786
+   animations/822  responsive/835  confetti/909  ripple/912  quiz-combo/917
+   ticker/930  icons/934  examples/936  session-bar/956  session-start/980
+   round-transition/1019  session-complete/1042  memory-game/1088  keyframes/1221
+   ========================================================================== */
+
   :root {
     /* Academic palette */
     --primary: #00BC71; --primary-hover: #00A862; --primary-light: #E6F9F2;
