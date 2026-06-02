@@ -313,8 +313,15 @@ function loadFullApp(username) {
     '<i class="fa-solid fa-spinner fa-spin"></i> 加载中...</div>';
   // Dynamically load the full app
   const script = document.createElement('script');
-  script.src = 'js/app.js?v=10';
+  script.src = 'js/app.js?v=11';
   script.onload = () => { _appLoaded = true; };
+  script.onerror = () => {
+    document.getElementById('main-content').innerHTML =
+      '<div style="display:flex;align-items:center;justify-content:center;height:200px;flex-direction:column;gap:16px;color:var(--text-secondary);font-size:var(--text-base);text-align:center;padding:20px;">' +
+      '<div style="font-size:48px;">📵</div>' +
+      '<div>应用加载失败，请检查网络连接后刷新页面</div>' +
+      '<button class="btn btn-primary" onclick="location.reload()" style="width:auto;margin-top:8px;">刷新页面</button></div>';
+  };
   document.head.appendChild(script);
   // app.js init() runs automatically → enterApp() renders the real UI
 }

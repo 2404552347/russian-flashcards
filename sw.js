@@ -1,5 +1,5 @@
 // Service Worker for 多语言单词闪卡 PWA
-const CACHE_NAME = 'flashcards-v4';
+const CACHE_NAME = 'flashcards-v5';
 const ASSETS = [
   '.',
   'index.html',
@@ -53,7 +53,7 @@ self.addEventListener('fetch', event => {
           caches.open(CACHE_NAME).then(cache => cache.put(event.request, clone));
           return response;
         })
-        .catch(() => caches.match(event.request))
+        .catch(() => caches.match(event.request, { ignoreSearch: true }))
     );
     return;
   }
