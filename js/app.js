@@ -376,9 +376,11 @@ function enterApp(username) {
 }
 
 function loadDeck(lang, folderId) {
-  if (!folderId) { WORDS = []; srsData = {}; return; }
+  if (!folderId) { WORDS = []; srsData = {}; wordMap = new Map(); invalidateSRSStats(); return; }
   WORDS = loadDeckFromStorage(lang, folderId) || [];
   srsData = loadSRSFromStorage(lang, folderId);
+  rebuildWordMap();
+  invalidateSRSStats();
   // Auto-migrate old SM-2 entries to proficiency format
   let srsMigrated = false;
   for (const [wordId, entry] of Object.entries(srsData)) {
@@ -393,6 +395,52 @@ function loadDeck(lang, folderId) {
 
 function saveDeck() { saveDeckToStorage(activeLang, WORDS, activeFolderId); }
 function saveSRSLocal() { saveSRSToStorage(activeLang, srsData, activeFolderId); }
+
+// ── Word index (O(1) lookup, avoids O(n) WORDS.find() scans) ──
+let wordMap = new Map();
+function rebuildWordMap() { wordMap = new Map(WORDS.map(w => [w.id, w])); }
+function addToWordMap(w) { wordMap.set(w.id, w); }
+function removeFromWordMap(id) { wordMap.delete(id); }
+
+// ── SRS stats cache (avoids repeated O(n) WORDS.filter() in hot paths) ──
+let _srsStatsCache = null;
+function invalidateSRSStats() { _srsStatsCache = null; }
+function getSRSStats() {
+  if (_srsStatsCache) return _srsStatsCache;
+  const now = Date.now();
+  let due = 0, learning = 0, new_ = 0, mastered = 0, starred = 0;
+  for (let i = 0; i < WORDS.length; i++) {
+    const w = WORDS[i];
+    const e = srsData[w.id];
+    if (!e) { new_++; }
+    else if (e.proficiency >= 7 && e.nextReviewTime && new Date(e.nextReviewTime).getTime() > now) { mastered++; }
+    else if (e.nextReviewTime && new Date(e.nextReviewTime).getTime() <= now) { due++; }
+    else { learning++; }
+    if (starredWords[w.id]) starred++;
+  }
+  _srsStatsCache = { due, learning, new: new_, mastered, starred, total: WORDS.length };
+  return _srsStatsCache;
+}
+
+// ── Debounced save (batches rapid localStorage writes for large decks) ──
+let _saveDeckTimer = null;
+let _saveSRSTimer = null;
+function saveDeckDebounced(ms) {
+  invalidateSRSStats();
+  if (WORDS.length < 200) { saveDeck(); return; }
+  clearTimeout(_saveDeckTimer);
+  _saveDeckTimer = setTimeout(() => { saveDeck(); }, ms || 300);
+}
+function saveSRSDebounced(ms) {
+  invalidateSRSStats();
+  if (Object.keys(srsData).length < 200) { saveSRSLocal(); return; }
+  clearTimeout(_saveSRSTimer);
+  _saveSRSTimer = setTimeout(() => { saveSRSLocal(); }, ms || 300);
+}
+function flushSaves() {
+  clearTimeout(_saveDeckTimer); clearTimeout(_saveSRSTimer);
+  saveDeck(); saveSRSLocal();
+}
 
 // ========================================================
 //  FOLDER MIGRATION
@@ -416,21 +464,26 @@ function migrateLangToFolders(lang) {
 
 function insertWordLocal(word, tr, zh, pos) {
   const id = (crypto.randomUUID) ? crypto.randomUUID() : 'id-' + Date.now() + '-' + Math.random().toString(36).substr(2, 9);
-  WORDS.push({ id, ru: word, tr: tr || '', zh, pos: pos || '', example: '', exampleZh: '' });
-  saveDeck();
+  const w = { id, ru: word, tr: tr || '', zh, pos: pos || '', example: '', exampleZh: '' };
+  WORDS.push(w);
+  addToWordMap(w);
+  invalidateSRSStats();
+  saveDeckDebounced();
   return id;
 }
 
 function updateWordLocal(wordId, word, tr, zh, pos, example, exampleZh) {
-  const w = WORDS.find(x => x.id === wordId);
-  if (w) { w.ru = word; w.tr = tr; w.zh = zh; w.pos = pos; w.example = example || ''; w.exampleZh = exampleZh || ''; saveDeck(); }
+  const w = wordMap.get(wordId);
+  if (w) { w.ru = word; w.tr = tr; w.zh = zh; w.pos = pos; w.example = example || ''; w.exampleZh = exampleZh || ''; saveDeckDebounced(); }
 }
 
 function deleteWordLocal(wordId) {
   WORDS = WORDS.filter(x => x.id !== wordId);
+  removeFromWordMap(wordId);
   delete srsData[wordId];
-  saveDeck();
-  saveSRSLocal();
+  invalidateSRSStats();
+  saveDeckDebounced();
+  saveSRSDebounced();
 }
 
 function addLangLocal(code, name, flag, speechLang) {
@@ -1909,7 +1962,7 @@ function updateProficiency(action, entry) {
 }
 
 function getSRS(wordId) { return srsData[wordId] || null; }
-function setSRS(wordId, entry) { srsData[wordId] = entry; saveSRSLocal(); }
+function setSRS(wordId, entry) { srsData[wordId] = entry; invalidateSRSStats(); saveSRSDebounced(); }
 
 function isDue(wordId) { const e = getSRS(wordId); return e && e.nextReviewTime ? new Date(e.nextReviewTime) <= new Date() : false; }
 function isNew(wordId) { return !srsData[wordId]; }
@@ -1943,15 +1996,16 @@ function getSRSBadgeClass(wordId) {
   return 'badge-learning';
 }
 
-function countByCategory(cat) { return WORDS.filter(w => getSRSCategory(w.id) === cat).length; }
-function countDue() { return WORDS.filter(w => isDue(w.id)).length; }
+function countByCategory(cat) { const s = getSRSStats(); return s[cat] || 0; }
+function countDue() { return getSRSStats().due; }
 
 function updateStats() {
-  document.getElementById('stat-due').textContent = countDue();
-  document.getElementById('stat-learning').textContent = countByCategory('learning');
-  document.getElementById('stat-mastered').textContent = countByCategory('mastered');
-  document.getElementById('stat-new').textContent = countByCategory('new');
-  document.getElementById('stat-total').textContent = WORDS.length;
+  const s = getSRSStats();
+  document.getElementById('stat-due').textContent = s.due;
+  document.getElementById('stat-learning').textContent = s.learning;
+  document.getElementById('stat-mastered').textContent = s.mastered;
+  document.getElementById('stat-new').textContent = s.new;
+  document.getElementById('stat-total').textContent = s.total;
 }
 
 // ========================================================
@@ -2069,7 +2123,7 @@ if ('speechSynthesis' in window) speechSynthesis.getVoices();
 
 // ── Tatoeba Example Fetch ─────────────────────────────
 async function fetchExample(wordId) {
-  const w = WORDS.find(x => x.id === wordId);
+  const w = wordMap.get(wordId);
   if (!w) return;
 
   try {
@@ -2099,7 +2153,7 @@ async function fetchExample(wordId) {
     if (bestRu) {
       bestZh = toSimplified(bestZh);
       w.example = bestRu; w.exampleZh = bestZh;
-      saveDeck();
+      saveDeckDebounced();
       const exampleEl = document.getElementById('word-example-' + wordId);
       if (exampleEl) {
         exampleEl.innerHTML = '<div class="example-text">' + escHtml(bestRu) + '</div>' +
@@ -2117,7 +2171,7 @@ async function fetchExample(wordId) {
 }
 
 async function fetchExampleForQuiz(wordId) {
-  const w = WORDS.find(x => x.id === wordId);
+  const w = wordMap.get(wordId);
   if (!w) return;
   try {
     const query = encodeURIComponent(w.ru);
@@ -2145,7 +2199,7 @@ async function fetchExampleForQuiz(wordId) {
     if (bestRu) {
       bestZh = toSimplified(bestZh);
       w.example = bestRu; w.exampleZh = bestZh;
-      saveDeck();
+      saveDeckDebounced();
       // Update quiz feedback if visible
       const fb = document.getElementById('quiz-feedback');
       if (fb) {
@@ -2290,11 +2344,17 @@ function getDateSeed() {
 }
 
 function buildDailySessionPool(targetCount) {
-  // Collect candidates by category
-  const dueWords = WORDS.filter(w => isDue(w.id));
-  const learningWords = WORDS.filter(w => isLearning(w.id) && !isDue(w.id));
-  const newWords = WORDS.filter(w => isNew(w.id));
-  const masteredWords = WORDS.filter(w => isMastered(w.id));
+  // Single-pass categorization (4x faster than 4 separate .filter() calls)
+  const dueWords = [], learningWords = [], newWords = [], masteredWords = [];
+  const now = Date.now();
+  for (let i = 0; i < WORDS.length; i++) {
+    const w = WORDS[i];
+    const e = srsData[w.id];
+    if (!e) { newWords.push(w); }
+    else if (e.proficiency >= 7 && e.nextReviewTime && new Date(e.nextReviewTime).getTime() > now) { masteredWords.push(w); }
+    else if (e.nextReviewTime && new Date(e.nextReviewTime).getTime() <= now) { dueWords.push(w); }
+    else { learningWords.push(w); }
+  }
 
   const seed = getDateSeed();
 
@@ -2353,14 +2413,26 @@ function updateNewWordsPerDay(val) {
 // ========================================================
 function applyFilter() {
   flashcardPool = [];
-  for (let i = 0; i < WORDS.length; i++) {
-    const cat = getSRSCategory(WORDS[i].id);
-    if (flashcardFilter === 'all') flashcardPool.push(i);
-    else if (flashcardFilter === 'due' && cat === 'due') flashcardPool.push(i);
-    else if (flashcardFilter === 'learning' && (cat === 'due' || cat === 'learning')) flashcardPool.push(i);
-    else if (flashcardFilter === 'new' && cat === 'new') flashcardPool.push(i);
-    else if (flashcardFilter === 'mastered' && cat === 'mastered') flashcardPool.push(i);
-    else if (flashcardFilter === 'starred' && isStarred(WORDS[i].id)) flashcardPool.push(i);
+  // Fast path: 'all' doesn't need SRS lookups
+  if (flashcardFilter === 'all') {
+    for (let i = 0; i < WORDS.length; i++) flashcardPool.push(i);
+  } else {
+    const now = Date.now();
+    for (let i = 0; i < WORDS.length; i++) {
+      const w = WORDS[i];
+      const e = srsData[w.id];
+      let cat;
+      if (!e) { cat = 'new'; }
+      else if (e.proficiency >= 7 && e.nextReviewTime && new Date(e.nextReviewTime).getTime() > now) { cat = 'mastered'; }
+      else if (e.nextReviewTime && new Date(e.nextReviewTime).getTime() <= now) { cat = 'due'; }
+      else { cat = 'learning'; }
+
+      if (flashcardFilter === 'due' && cat === 'due') flashcardPool.push(i);
+      else if (flashcardFilter === 'learning' && (cat === 'due' || cat === 'learning')) flashcardPool.push(i);
+      else if (flashcardFilter === 'new' && cat === 'new') flashcardPool.push(i);
+      else if (flashcardFilter === 'mastered' && cat === 'mastered') flashcardPool.push(i);
+      else if (flashcardFilter === 'starred' && isStarred(w.id)) flashcardPool.push(i);
+    }
   }
   if (flashcardIndex >= flashcardPool.length) flashcardIndex = 0;
 }
@@ -2471,7 +2543,7 @@ function renderSessionCard() {
   if (flashcardIndex >= sessionQueue.length) flashcardIndex = 0;
   cardStage = 1;
   const wordId = sessionQueue[flashcardIndex];
-  const w = WORDS.find(x => x.id === wordId);
+  const w = wordMap.get(wordId);
   if (!w) {
     // Word might have been deleted
     sessionQueue.splice(flashcardIndex, 1);
@@ -2543,6 +2615,7 @@ function renderSessionCard() {
 }
 
 function completeSession() {
+  flushSaves();
   sessionActive = false;
   const duration = sessionStartedAt ? Math.round((new Date() - new Date(sessionStartedAt)) / 1000) : 0;
   const minutes = Math.floor(duration / 60);
@@ -2560,7 +2633,7 @@ function completeSession() {
     .sort(([, a], [, b]) => b - a)
     .slice(0, 3)
     .map(([id, count]) => {
-      const w = WORDS.find(x => x.id === id);
+      const w = wordMap.get(id);
       return w ? { word: w.ru, attempts: count } : null;
     })
     .filter(Boolean);
@@ -2747,7 +2820,7 @@ function renderStarBtn() {
   if (sessionActive) {
     const wordId = sessionQueue[flashcardIndex];
     if (wordId === undefined) return;
-    w = WORDS.find(x => x.id === wordId);
+    w = wordMap.get(wordId);
   } else {
     const idx = flashcardPool[flashcardIndex];
     if (idx === undefined) return;
@@ -2767,7 +2840,7 @@ function handleStage1(choice) {
     wordId = idx !== undefined ? WORDS[idx]?.id : undefined;
   }
   if (wordId === undefined) return;
-  const w = WORDS.find(x => x.id === wordId);
+  const w = wordMap.get(wordId);
   if (!w) return;
 
   // Track attempts for hardest-words
@@ -2935,7 +3008,7 @@ function autoSpeakCurrent() {
   if (sessionActive) {
     const wordId = sessionQueue[flashcardIndex];
     if (wordId !== undefined) {
-      const w = WORDS.find(x => x.id === wordId);
+      const w = wordMap.get(wordId);
       if (w) speakWord(w.ru);
     }
   } else {
@@ -2950,12 +3023,21 @@ function autoSpeakCurrent() {
 function setQuizType(t) { quizType = t; startQuiz(); }
 
 function startQuiz() {
-  const due = shuffleArr(WORDS.filter(w => isDue(w.id)));
-  const learning = shuffleArr(WORDS.filter(w => isLearning(w.id) && !isDue(w.id)));
-  const fresh = shuffleArr(WORDS.filter(w => isNew(w.id)));
-  const mastered = shuffleArr(WORDS.filter(w => isMastered(w.id)));
-  const starred = shuffleArr(WORDS.filter(w => isStarred(w.id)));
-  const nonStarred = [...due, ...learning, ...fresh, ...mastered].filter(w => !isStarred(w.id));
+  // Single-pass categorization (5x faster than 5 separate .filter() calls)
+  const due = [], learning = [], fresh = [], mastered = [], starred = [];
+  const now = Date.now();
+  for (let i = 0; i < WORDS.length; i++) {
+    const w = WORDS[i];
+    const e = srsData[w.id];
+    if (starredWords[w.id]) { starred.push(w); }
+    if (!e) { fresh.push(w); }
+    else if (e.proficiency >= 7 && e.nextReviewTime && new Date(e.nextReviewTime).getTime() > now) { mastered.push(w); }
+    else if (e.nextReviewTime && new Date(e.nextReviewTime).getTime() <= now) { due.push(w); }
+    else { learning.push(w); }
+  }
+  shuffleArr(due); shuffleArr(learning); shuffleArr(fresh); shuffleArr(mastered); shuffleArr(starred);
+  const starredIds = new Set(starred.map(w => w.id));
+  const nonStarred = [...due, ...learning, ...fresh, ...mastered].filter(w => !starredIds.has(w.id));
   quizWords = [...starred, ...nonStarred].slice(0, 15);
   quizIndex = 0; quizAnswered = false; quizCombo = 0;
   renderQuiz();
@@ -2993,7 +3075,16 @@ function renderQuiz() {
 }
 
 function renderNormalQuiz(w) {
-  const others = shuffleArr(WORDS.filter(x => x.id !== w.id)).slice(0, 3);
+  // Fast random sample (avoids O(n) .filter on large WORDS)
+  const others = [];
+  const len = WORDS.length;
+  if (len > 1) {
+    const seen = new Set([w.id]);
+    for (let attempt = 0; attempt < 20 && others.length < 3; attempt++) {
+      const rw = WORDS[Math.floor(Math.random() * len)];
+      if (!seen.has(rw.id)) { seen.add(rw.id); others.push(rw); }
+    }
+  }
   const options = shuffleArr([w, ...others]);
   document.getElementById('main-content').innerHTML = `<div class="quiz-container">
     <div class="quiz-type-bar">
@@ -3013,7 +3104,16 @@ function renderNormalQuiz(w) {
 }
 
 function renderReverseQuiz(w) {
-  const others = shuffleArr(WORDS.filter(x => x.id !== w.id)).slice(0, 3);
+  // Fast random sample (avoids O(n) .filter on large WORDS)
+  const others = [];
+  const len = WORDS.length;
+  if (len > 1) {
+    const seen = new Set([w.id]);
+    for (let attempt = 0; attempt < 20 && others.length < 3; attempt++) {
+      const rw = WORDS[Math.floor(Math.random() * len)];
+      if (!seen.has(rw.id)) { seen.add(rw.id); others.push(rw); }
+    }
+  }
   const options = shuffleArr([w, ...others]);
   document.getElementById('main-content').innerHTML = `<div class="quiz-container">
     <div class="quiz-type-bar">
@@ -3343,16 +3443,23 @@ function updateMemoryPairs() {
 // ========================================================
 //  WORD LIST
 // ========================================================
-function toggleListDictionary() { listShowDictionary = !listShowDictionary; listSearchQuery = ''; renderList(); }
+let listPage = 0;
+const LIST_PAGE_SIZE = 100;
+
+function toggleListDictionary() { listShowDictionary = !listShowDictionary; listSearchQuery = ''; listPage = 0; renderList(); }
 
 function addFromDictionary(ru, tr, zh, pos) {
   const normalize = s => s.replace(/[́]/g, '').toLowerCase();
-  if (WORDS.find(w => normalize(w.ru) === normalize(ru))) {
-    showToast('该词已在当前词库中', ''); return;
+  const normRu = normalize(ru);
+  for (let i = 0; i < WORDS.length; i++) {
+    if (normalize(WORDS[i].ru) === normRu) { showToast('该词已在当前词库中', ''); return; }
   }
   const id = (crypto.randomUUID) ? crypto.randomUUID() : 'id-' + Date.now() + '-' + Math.random().toString(36).substr(2, 9);
-  WORDS.push({ id, ru, tr: tr || '', zh, pos: pos || '', example: '', exampleZh: '' });
-  saveDeck();
+  const w = { id, ru, tr: tr || '', zh, pos: pos || '', example: '', exampleZh: '' };
+  WORDS.push(w);
+  addToWordMap(w);
+  invalidateSRSStats();
+  saveDeckDebounced();
   updateStats();
   refreshListResults();
   showToast('已添加：' + ru, 'success');
@@ -3360,6 +3467,7 @@ function addFromDictionary(ru, tr, zh, pos) {
 }
 
 function renderList() {
+  listPage = 0;
   const currentLang = userLanguages.find(l => l.lang === activeLang);
   const dictWords = (DEFAULT_WORDS && DEFAULT_WORDS[activeLang]) ? DEFAULT_WORDS[activeLang] : [];
 
@@ -3418,7 +3526,18 @@ function refreshListResults() {
       if (!q) return true;
       return normalize(w[0]).includes(q) || w[2].toLowerCase().includes(q) || (w[1]||'').toLowerCase().includes(q);
     });
-    resultsEl.innerHTML = filtered.map(w => {
+    const total = filtered.length;
+    if (total === 0) { resultsEl.innerHTML = '<div class="empty-state">没有匹配的单词</div>'; return; }
+    // Reset page if beyond range
+    const maxPage = Math.ceil(total / LIST_PAGE_SIZE) - 1;
+    if (listPage > maxPage) listPage = maxPage;
+    const start = listPage * LIST_PAGE_SIZE;
+    const page = filtered.slice(start, start + LIST_PAGE_SIZE);
+    const hasMore = start + LIST_PAGE_SIZE < total;
+    resultsEl.innerHTML = (listPage === 0
+      ? `<div style="font-size:12px;color:var(--text-muted);margin-bottom:6px;">共 ${total} 词</div>`
+      : `<div style="font-size:12px;color:var(--text-muted);margin-bottom:6px;">${start + 1}-${Math.min(start + LIST_PAGE_SIZE, total)} / ${total} 词</div>`
+    ) + page.map(w => {
       const isAdded = existingSet.has(normalize(w[0]));
       return `<div class="word-item" style="${isAdded ? 'opacity:.6;' : ''}">
         <div class="word-left">
@@ -3438,11 +3557,26 @@ function refreshListResults() {
           </div>
         </div>
       </div>`;
-    }).join('') || '<div class="empty-state">没有匹配的单词</div>';
+    }).join('') + (hasMore
+      ? `<button class="btn btn-outline" style="width:100%;margin-top:8px;padding:10px;" onclick="listPage++;refreshListResults();"><i class="fa-solid fa-chevron-down"></i> 加载更多 (剩余 ${total - start - LIST_PAGE_SIZE} 词)</button>`
+      : '');
   } else {
     const q = listSearchQuery.toLowerCase();
-    const filtered = WORDS.filter(w => !q || normalizeCompare(w.ru).includes(q) || w.zh.toLowerCase().includes(q) || (w.tr||'').toLowerCase().includes(q));
-    resultsEl.innerHTML = filtered.map(w => `<div class="word-item">
+    const filtered = q
+      ? WORDS.filter(w => normalizeCompare(w.ru).includes(q) || w.zh.toLowerCase().includes(q) || (w.tr||'').toLowerCase().includes(q))
+      : WORDS;
+    const total = filtered.length;
+    if (total === 0) { resultsEl.innerHTML = '<div class="empty-state">没有匹配的单词</div>'; return; }
+    // Reset page if beyond range
+    const maxPage = Math.ceil(total / LIST_PAGE_SIZE) - 1;
+    if (listPage > maxPage) listPage = maxPage;
+    const start = listPage * LIST_PAGE_SIZE;
+    const page = filtered.slice(start, start + LIST_PAGE_SIZE);
+    const hasMore = start + LIST_PAGE_SIZE < total;
+    resultsEl.innerHTML = (listPage === 0
+      ? `<div style="font-size:12px;color:var(--text-muted);margin-bottom:6px;">共 ${total} 词</div>`
+      : `<div style="font-size:12px;color:var(--text-muted);margin-bottom:6px;">${start + 1}-${Math.min(start + LIST_PAGE_SIZE, total)} / ${total} 词</div>`
+    ) + page.map(w => `<div class="word-item">
       <div class="word-left"><div><span class="word-ru">${w.ru}</span></div><div class="word-tr">${w.tr||''}</div><div class="word-srs"><span class="card-srs-badge ${getSRSBadgeClass(w.id)}">${getSRSLabel(w.id)}</span></div>${w.example ? '<div class="word-example-truncated"><i class="fa-solid fa-quote-left"></i> ' + escHtml(w.example.substring(0, 40)) + (w.example.length > 40 ? '...' : '') + '</div>' : ''}</div>
       <div style="display:flex;align-items:center;gap:10px;"><span class="word-zh">${w.zh}</span><span style="font-size:12px;color:var(--text-muted);">${w.pos||''}</span>
       <div class="word-actions">
@@ -3450,18 +3584,23 @@ function refreshListResults() {
         <button class="btn-action speak-btn" onclick="speakWord('${w.ru.replace(/'/g,"\\'")}')"><i class="fa-solid fa-volume-high"></i></button>
         <button class="btn-action edit-btn" onclick="openEditModal('${w.id}')"><i class="fa-solid fa-pencil"></i></button>
         <button class="btn-action delete-btn" onclick="deleteWord('${w.id}')"><i class="fa-solid fa-trash-can"></i></button>
-      </div></div></div>`).join('') || '<div class="empty-state">没有匹配的单词</div>';
+      </div></div></div>`).join('') + (hasMore
+      ? `<button class="btn btn-outline" style="width:100%;margin-top:8px;padding:10px;" onclick="listPage++;refreshListResults();"><i class="fa-solid fa-chevron-down"></i> 加载更多 (剩余 ${total - start - LIST_PAGE_SIZE} 词)</button>`
+      : '');
   }
 }
 
+let _searchTimer = null;
 function onSearchInput(v) {
   listSearchQuery = v;
-  refreshListResults();
+  listPage = 0;
+  clearTimeout(_searchTimer);
+  _searchTimer = setTimeout(() => refreshListResults(), 150);
 }
 
 // ── Edit / Delete ─────────────────────────────────────
 function openEditModal(wordId) {
-  const w = WORDS.find(x => x.id === wordId); if (!w) return;
+  const w = wordMap.get(wordId); if (!w) return;
   editingWordId = wordId;
   document.getElementById('edit-ru').value = w.ru;
   document.getElementById('edit-tr').value = w.tr || '';
@@ -3474,7 +3613,7 @@ function openEditModal(wordId) {
 function closeEditModal() { editingWordId = null; document.getElementById('edit-modal').classList.remove('show'); }
 function saveEdit() {
   if (!editingWordId) return;
-  const w = WORDS.find(x => x.id === editingWordId); if (!w) return;
+  const w = wordMap.get(editingWordId); if (!w) return;
   w.ru = document.getElementById('edit-ru').value.trim() || w.ru;
   w.tr = document.getElementById('edit-tr').value.trim();
   w.zh = document.getElementById('edit-zh').value.trim() || w.zh;
@@ -3486,13 +3625,9 @@ function saveEdit() {
   renderMain();
 }
 function deleteWord(wordId) {
-  const w = WORDS.find(x => x.id === wordId); if (!w) return;
+  const w = wordMap.get(wordId); if (!w) return;
   if (!confirm(`确定要删除「${w.ru}」吗？`)) return;
   deleteWordLocal(wordId);
-  WORDS = WORDS.filter(x => x.id !== wordId);
-  delete srsData[wordId];
-  saveDeck();
-  saveSRSLocal();
   updateStats(); renderMain();
 }
 
@@ -3696,6 +3831,9 @@ function confirmImport() {
   if (targetFolderId !== activeFolderId) {
     saveDeckToStorage(activeLang, targetWords, targetFolderId);
   } else {
+    WORDS = targetWords;
+    rebuildWordMap();
+    invalidateSRSStats();
     saveDeck();
   }
   updateStats(); clearImport(); closeImportModal(); renderMain();
@@ -3993,15 +4131,19 @@ function isStarred(wordId) { return !!starredWords[wordId]; }
 function toggleStar(wordId) {
   if (isStarred(wordId)) delete starredWords[wordId];
   else starredWords[wordId] = true;
+  invalidateSRSStats();
   saveStarred();
   if (currentMode === 'flashcard') {
     const btn = document.getElementById('card-star-btn');
     if (btn) { btn.classList.toggle('starred', isStarred(wordId)); btn.classList.add('star-pop'); setTimeout(() => btn.classList.remove('star-pop'), 350); }
   }
 }
-function starredCount() { return WORDS.filter(w => isStarred(w.id)).length; }
+function starredCount() { return getSRSStats().starred; }
 function exportStarredWords() {
-  const starred = WORDS.filter(w => isStarred(w.id));
+  const starred = [];
+  for (let i = 0; i < WORDS.length; i++) {
+    if (starredWords[WORDS[i].id]) starred.push(WORDS[i]);
+  }
   if (starred.length === 0) { alert('还没有收藏的单词'); return; }
   const header = '单词\t音标\t中文\t词性\t例句\t例句翻译';
   const lines = starred.map(w => [w.ru, w.tr||'', w.zh, w.pos||'', w.example||'', w.exampleZh||''].join('\t'));
@@ -4609,6 +4751,10 @@ function init() {
 
 init();
 
+// Flush pending debounced saves before page unload
+window.addEventListener('beforeunload', () => { flushSaves(); });
+window.addEventListener('pagehide', () => { flushSaves(); });
+
 // Keyboard shortcuts
 document.addEventListener('keydown', e => {
   if (document.getElementById('auth-screen').style.display !== 'none') return;
@@ -4628,7 +4774,7 @@ document.addEventListener('keydown', e => {
       if (sessionActive) {
         const wordId = sessionQueue[flashcardIndex];
         if (wordId !== undefined) {
-          const w = WORDS.find(x => x.id === wordId);
+          const w = wordMap.get(wordId);
           if (w) speakWord(w.ru);
         }
       } else {
