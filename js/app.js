@@ -16,13 +16,7 @@
 // ========================================================
 //  ACCOUNT SYSTEM -- SESSION & STORAGE INFRASTRUCTURE
 // ========================================================
-const ACCOUNTS_KEY = 'flashcards_accounts';
-const SESSION_KEY = 'flashcards_session';
-
-// Legacy keys (for migration of pre-account data)
-const LEGACY_LANGS_KEY = 'flashcards_languages_v2';
-const LEGACY_DECK_PREFIX = 'flashcards_deck_v2_';
-const LEGACY_SRS_PREFIX = 'flashcards_srs_v2_';
+// ACCOUNTS_KEY, SESSION_KEY, LEGACY_* declared in core.js
 
 // ── Session management ─────────────────────────────────
 function getCurrentSession() {
@@ -1803,47 +1797,46 @@ const DEFAULT_WORDS = {
 };;
 
 // ========================================================
-//  APP STATE
+//  APP STATE (declared in core.js — reassign defaults here)
 // ========================================================
-let userLanguages = []; // { lang, name, flag, speech_lang, sort_order }
-let activeLang = 'ru';
-let activeFolderId = null;
-let folders = []; // { id, name, sort_order, created_at }
-let WORDS = [];
-let srsData = {};
-let currentMode = 'flashcard';
-let flashcardIndex = 0, flashcardFilter = 'all', flashcardPool = [];
-let quizType = 'ru-zh', quizWords = [], quizIndex = 0, quizAnswered = false;
-let pendingImport = [], listSearchQuery = '', editingWordId = null, listShowDictionary = false;
-let soundEnabled = true, hapticEnabled = true, dailyGoal = 20, flashcardAutoSpeak = true, manualAdvance = false;
-let audioCtx = null;
-let starredWords = {};
-let listenIndex = 0, listenPlaying = false, listenRepeatCount = 1, listenSpeechRate = 0.85;
-let listenLoopMode = 'folder'; // 'folder' | 'next'
-let listenRepeatRemaining = 0, listenTimeout = null;
-let listenTimerDuration = 0, listenTimerRemaining = 0, listenTimerInterval = null; // timer in seconds
-
+userLanguages = [];
+activeLang = 'ru';
+activeFolderId = null;
+folders = [];
+WORDS = [];
+srsData = {};
+currentMode = 'flashcard';
+flashcardIndex = 0; flashcardFilter = 'all'; flashcardPool = [];
+quizType = 'ru-zh'; quizWords = []; quizIndex = 0; quizAnswered = false;
+pendingImport = []; listSearchQuery = ''; editingWordId = null; listShowDictionary = false;
+soundEnabled = true; hapticEnabled = true; dailyGoal = 20; flashcardAutoSpeak = true; manualAdvance = false;
+audioCtx = null;
+starredWords = {};
+listenIndex = 0; listenPlaying = false; listenRepeatCount = 1; listenSpeechRate = 0.85;
+listenLoopMode = 'folder';
+listenRepeatRemaining = 0; listenTimeout = null;
+listenTimerDuration = 0; listenTimerRemaining = 0; listenTimerInterval = null;
 
 // Daily Session State
-let sessionActive = false;
-let sessionQueue = [];             // dynamic queue: words reinsert at different positions based on performance
-let sessionCompletedWords = [];    // word IDs mastered this session
-let sessionCorrectFirstTry = [];   // word IDs correct on first attempt
-let sessionTotalAttempts = 0;
-let sessionStartedAt = null;
-let sessionWordAttempts = {};      // wordId -> attempt count (across all appearances)
-let sessionMode = false;           // true = session mode, false = old browse mode
-const SESSION_MAX_ATTEMPTS = 5;    // force-master a word after this many attempts to prevent infinite loops
+sessionActive = false;
+sessionQueue = [];
+sessionCompletedWords = [];
+sessionCorrectFirstTry = [];
+sessionTotalAttempts = 0;
+sessionStartedAt = null;
+sessionWordAttempts = {};
+sessionMode = false;
+const SESSION_MAX_ATTEMPTS = 5;
 
 // ── Memory Game State ─────────────────────────────
-let memoryCards = [];
-let memoryFlippedIndices = [];
-let memoryMatchedPairs = 0;
-let memoryMoves = 0;
-let memoryTimerSec = 0;
-let memoryTimerInterval = null;
-let memoryLocked = false;
-let newWordsPerDay = 10;
+memoryCards = [];
+memoryFlippedIndices = [];
+memoryMatchedPairs = 0;
+memoryMoves = 0;
+memoryTimerSec = 0;
+memoryTimerInterval = null;
+memoryLocked = false;
+newWordsPerDay = 10;
 
 // ========================================================
 //  UTILS
@@ -2104,7 +2097,7 @@ function cleanupOldSessions() {
 
 //  SPEECH
 // ========================================================
-let _lastUtterance = null;
+_lastUtterance = null;
 function speakWord(text) {
   if (!('speechSynthesis' in window)) return;
   window.speechSynthesis.cancel();
@@ -2743,7 +2736,7 @@ function sessionShuffleCard() {
 }
 
 // ── Two-Stage Card Interaction ──────────────────────
-let cardStage = 1; // 1 = question, 2 = answer revealed
+cardStage = 1; // 1 = question, 2 = answer revealed
 
 function renderFlashcard() {
   if (WORDS.length === 0) {
@@ -4210,7 +4203,7 @@ function updateStreakUI() {
 // ========================================================
 //  SWIPE GESTURES (two-stage aware)
 // ========================================================
-let swipeStartX = 0, swipeStartY = 0, swipeCurrentX = 0, swipeActive = false;
+swipeStartX = 0; swipeStartY = 0; swipeCurrentX = 0; swipeActive = false;
 function initSwipe() {
   const card = document.getElementById('card-stage');
   if (!card) return;
@@ -4789,8 +4782,8 @@ document.addEventListener('keydown', e => {
 // ========================================================
 const confettiCanvas = document.getElementById('confetti-canvas');
 const confettiCtx = confettiCanvas.getContext('2d');
-let confettiParticles = [];
-let confettiRAF = null;
+confettiParticles = [];
+confettiRAF = null;
 
 function resizeConfetti() {
   confettiCanvas.width = window.innerWidth;
@@ -4891,8 +4884,8 @@ function initRipples() {
 // ========================================================
 //  QUIZ COMBO
 // ========================================================
-let quizCombo = 0;
-let quizComboEl = null;
+quizCombo = 0;
+quizComboEl = null;
 
 function quizHitCombo() {
   quizCombo++;
