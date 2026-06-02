@@ -18,8 +18,12 @@
 <link rel="dns-prefetch" href="https://cdn.jsdelivr.net">
 <link rel="dns-prefetch" href="https://cdnjs.cloudflare.com">
 <script src="https://cdn.jsdelivr.net/npm/mammoth@1.6.0/mammoth.browser.min.js" defer></script>
+	<!-- Preload critical CSS — downloads start immediately, in parallel -->
+	<link rel="preload" as="style" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+	<link rel="preload" as="style" href="css/style.css?v=9">
+	<!-- Apply (preloaded resources hit cache, zero re-download) -->
 	<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
-	<link rel="stylesheet" href="css/style.css?v=8">
+	<link rel="stylesheet" href="css/style.css?v=9">
 </head>
 <body>
 
@@ -312,8 +316,8 @@
   <div><i class="fa-solid fa-hourglass-half"></i> 加载中...</div>
 </div>
 
-	<script src="js/wordlists.js?v=7"></script>
-	<script src="js/app.js?v=7"></script>
+	<script src="js/wordlists.js?v=7" defer></script>
+	<script src="js/app.js?v=7" defer></script>
 
 </body>
 </html>
