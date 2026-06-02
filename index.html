@@ -73,7 +73,7 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="闪卡">
-<link rel="apple-touch-icon" href="icon-192.png">
+<link rel="apple-touch-icon" sizes="180x180" href="apple-touch-icon.png">
 <link rel="icon" type="image/png" sizes="192x192" href="icon-192.png">
 <!-- End PWA -->
 <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
@@ -83,11 +83,11 @@
 <script src="https://cdn.jsdelivr.net/npm/mammoth@1.6.0/mammoth.browser.min.js" defer></script>
 	<!-- Preload critical CSS — downloads start immediately, in parallel -->
 	<link rel="preload" as="style" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
-	<link rel="preload" as="style" href="css/style.css?v=11">
+	<link rel="preload" as="style" href="css/style.css?v=12">
 	<!-- Apply (preloaded resources hit cache, zero re-download) -->
 		<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css" media="print" onload="this.media='all'">
-	<link rel="stylesheet" href="css/style.css?v=11" media="print" onload="this.media='all'">
-		<noscript><link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css"><link rel="stylesheet" href="css/style.css?v=11"></noscript>
+	<link rel="stylesheet" href="css/style.css?v=12" media="print" onload="this.media='all'">
+		<noscript><link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css"><link rel="stylesheet" href="css/style.css?v=12"></noscript>
 </head>
 <body>
 
@@ -185,6 +185,16 @@
 
   <main id="main-content"></main>
 
+  <div class="install-bar" id="install-bar" style="display:none;">
+    <div class="install-bar-icon"><i class="fa-solid fa-download"></i></div>
+    <div class="install-bar-text">
+      <strong>安装到手机</strong>
+      <span>无需浏览器，一键打开学习</span>
+    </div>
+    <button class="btn btn-primary btn-sm" onclick="promptInstall()">安装</button>
+    <button class="btn btn-ghost btn-sm" onclick="document.getElementById('install-bar').style.display='none'" style="padding:4px 8px;"><i class="fa-solid fa-xmark"></i></button>
+  </div>
+
   <div class="bottom-nav">
     <button class="nav-item active" id="nav-flashcard" onclick="setMode('flashcard')">
       <span class="nav-icon"><i class="fa-solid fa-layer-group"></i></span>闪卡
@@ -260,6 +270,10 @@
     <div class="settings-row">
       <div><label>朗读次数</label><div class="setting-desc">每个单词重复朗读次数</div></div>
       <input type="number" class="setting-input" id="setting-repeat-count" min="1" max="5" value="1" onchange="updateRepeatCount(this.value)">
+    </div>
+    <div class="settings-row">
+      <div><label>安装到手机</label><div class="setting-desc">添加到手机主屏幕，像原生 App 一样使用</div></div>
+      <button class="btn btn-outline btn-sm" onclick="promptInstall()" id="settings-install-btn"><i class="fa-solid fa-download"></i> 安装</button>
     </div>
     <div class="settings-row">
       <div><label>数据备份</label><div class="setting-desc">导出全部数据为备份文件，可跨设备恢复</div></div>
@@ -381,7 +395,7 @@
 </div>
 
 	<script src="js/wordlists.js?v=7" defer></script>
-	<script src="js/core.js?v=4" defer></script>
+	<script src="js/core.js?v=5" defer></script>
 	<!-- js/app.js loaded lazily by core.js after successful login -->
 
 </body>

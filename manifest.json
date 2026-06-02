@@ -1,22 +1,61 @@
 {
+  "id": "russian-flashcards-pwa",
   "name": "多语言单词闪卡",
   "short_name": "闪卡",
   "description": "俄语单词学习闪卡 - 支持多语言、SRS 间隔复习、测验、听力",
   "start_url": ".",
+  "scope": ".",
   "display": "standalone",
+  "display_override": ["standalone", "minimal-ui"],
   "background_color": "#FAFAF9",
   "theme_color": "#00BC71",
   "orientation": "any",
+  "categories": ["education", "productivity"],
+  "lang": "zh-CN",
+  "dir": "ltr",
   "icons": [
     {
       "src": "icon-192.png",
       "sizes": "192x192",
-      "type": "image/png"
+      "type": "image/png",
+      "purpose": "any"
     },
     {
       "src": "icon-512.png",
       "sizes": "512x512",
-      "type": "image/png"
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "icon-maskable.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ],
+  "screenshots": [
+    {
+      "src": "screenshot-flashcard.png",
+      "sizes": "390x844",
+      "type": "image/png",
+      "form_factor": "narrow",
+      "label": "闪卡学习界面"
+    },
+    {
+      "src": "screenshot-quiz.png",
+      "sizes": "390x844",
+      "type": "image/png",
+      "form_factor": "narrow",
+      "label": "测验模式"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "闪卡学习",
+      "short_name": "闪卡",
+      "description": "开始闪卡学习",
+      "url": ".",
+      "icons": [{ "src": "icon-192.png", "sizes": "192x192" }]
     }
   ]
 }

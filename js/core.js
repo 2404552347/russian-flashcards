@@ -313,7 +313,7 @@ function loadFullApp(username) {
     '<i class="fa-solid fa-spinner fa-spin"></i> 加载中...</div>';
   // Dynamically load the full app
   const script = document.createElement('script');
-  script.src = 'js/app.js?v=11';
+  script.src = 'js/app.js?v=12';
   script.onload = () => { _appLoaded = true; };
   script.onerror = () => {
     document.getElementById('main-content').innerHTML =
@@ -324,6 +324,58 @@ function loadFullApp(username) {
   };
   document.head.appendChild(script);
   // app.js init() runs automatically → enterApp() renders the real UI
+}
+
+// ── PWA Install Prompt ──────────────────────────────────
+let _deferredInstallPrompt = null;
+let _isStandalone = window.matchMedia('(display-mode: standalone)').matches
+  || navigator.standalone
+  || document.referrer.includes('android-app://');
+
+window.addEventListener('beforeinstallprompt', (e) => {
+  e.preventDefault();
+  _deferredInstallPrompt = e;
+  // Show install button after a short delay (once user is engaged)
+  setTimeout(() => {
+    if (_deferredInstallPrompt && !_isStandalone) {
+      const bar = document.getElementById('install-bar');
+      if (bar) bar.style.display = 'flex';
+    }
+  }, 5000);
+});
+
+window.addEventListener('appinstalled', () => {
+  _deferredInstallPrompt = null;
+  _isStandalone = true;
+  const bar = document.getElementById('install-bar');
+  if (bar) bar.style.display = 'none';
+});
+
+function promptInstall() {
+  if (_deferredInstallPrompt) {
+    _deferredInstallPrompt.prompt();
+    _deferredInstallPrompt.userChoice.then((result) => {
+      if (result.outcome === 'accepted') {
+        _isStandalone = true;
+      }
+      _deferredInstallPrompt = null;
+      const bar = document.getElementById('install-bar');
+      if (bar) bar.style.display = 'none';
+    });
+  } else {
+    // Fallback: show instructions
+    showInstallGuide();
+  }
+}
+
+function isInstalled() { return _isStandalone; }
+
+function showInstallGuide() {
+  const isIOS = /iphone|ipad|ipod/.test(navigator.userAgent.toLowerCase());
+  const msg = isIOS
+    ? '点击下方 <b>分享</b> 按钮 → <b>添加到主屏幕</b>'
+    : '点击浏览器菜单 → <b>添加到主屏幕</b> 或 <b>安装应用</b>';
+  showToast(msg, 'install-toast');
 }
 
 // ── Init ────────────────────────────────────────────────

@@ -1,13 +1,16 @@
 // Service Worker for 多语言单词闪卡 PWA
-const CACHE_NAME = 'flashcards-v5';
+const CACHE_NAME = 'flashcards-v6';
 const ASSETS = [
   '.',
   'index.html',
+  'js/core.js',
   'js/app.js',
   'css/style.css',
   'manifest.json',
   'icon-192.png',
   'icon-512.png',
+  'icon-maskable.png',
+  'apple-touch-icon.png',
   'https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css'
 ];
 
