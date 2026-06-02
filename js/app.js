@@ -2738,8 +2738,12 @@ function sessionShuffleCard() {
 // ── Two-Stage Card Interaction ──────────────────────
 cardStage = 1; // 1 = question, 2 = answer revealed
 
+// DOM cache for fast card updates (avoids innerHTML rebuild on mobile)
+let _fcCache = null; // { poolRef, filter, ruEl, trEl, zhEl, posEl, progressEl, badgeEl, starBtn, revealEl, stageEl, actionsEl, exampleEl, speakBtn }
+
 function renderFlashcard() {
   if (WORDS.length === 0) {
+    _fcCache = null;
     document.getElementById('main-content').innerHTML = `<div class="empty-state">
       <div class="empty-state-icon"><i class="fa-solid fa-book-open"></i></div>
       <h3>开始学习吧</h3>
@@ -2750,6 +2754,7 @@ function renderFlashcard() {
   }
   applyFilter();
   if (flashcardPool.length === 0) {
+    _fcCache = null;
     const msgs = { due: '没有待复习的单词！', learning: '没有学习中的单词！', new: '没有新单词！', mastered: '还没有已掌握的单词！', all: '没有单词！', starred: '还没有收藏的单词！' };
     document.getElementById('main-content').innerHTML = `<div class="flashcard-container">
       <button class="btn-back-to-session" onclick="goBackToSessionStart()"><i class="fa-solid fa-arrow-left"></i> 返回今日复习</button>
@@ -2765,23 +2770,50 @@ function renderFlashcard() {
   const label = getSRSLabel(w.id), badge = getSRSBadgeClass(w.id);
   const starredClass = isStarred(w.id) ? 'is-starred' : '';
 
+  // ── Fast path: reuse existing DOM, update text only ──
+  if (_fcCache && _fcCache.poolRef === flashcardPool && _fcCache.filter === flashcardFilter) {
+    _fcCache.ruEl.textContent = w.ru;
+    _fcCache.trEl.textContent = w.tr || '';
+    _fcCache.zhEl.textContent = w.zh;
+    _fcCache.posEl.textContent = w.pos || '';
+    _fcCache.progressEl.innerHTML = (flashcardIndex + 1) + ' / ' + flashcardPool.length + ' · <span class="card-srs-badge ' + badge + '">' + label + '</span>';
+    _fcCache.revealEl.classList.add('answer-hidden');
+    _fcCache.stageEl.classList.remove('revealed');
+    _fcCache.starBtn.className = 'star-btn-card ' + starredClass;
+    _fcCache.starBtn.setAttribute('onclick', "event.stopPropagation();toggleStar('" + w.id + "');renderStarBtn()");
+    _fcCache.speakBtn.setAttribute('onclick', "event.stopPropagation();speakWord('" + w.ru.replace(/'/g,"\\'") + "')");
+    _fcCache.actionsEl.innerHTML = '<button class="stage-btn stage-btn-dontknow" onclick="handleStage1(\'dontknow\')">不认识</button><button class="stage-btn stage-btn-unsure" onclick="handleStage1(\'unsure\')">模糊</button><button class="stage-btn stage-btn-know" onclick="handleStage1(\'know\')">认识</button>';
+    // Update example section
+    _fcCache.exampleEl.id = 'word-example-' + w.id;
+    if (w.example) {
+      _fcCache.exampleEl.innerHTML = '<div class="example-text">' + escHtml(w.example) + '</div>' + (w.exampleZh ? '<div class="example-zh">' + escHtml(toSimplified(w.exampleZh)) + '</div>' : '') + '<button class="btn-speak-example" onclick="event.stopPropagation();speakWord(\'' + w.example.replace(/'/g,"\\'") + '\')" style="margin-top:8px;"><i class="fa-solid fa-volume-high"></i> 朗读</button>';
+    } else {
+      _fcCache.exampleEl.innerHTML = '<button class="btn-generate-example" id="btn-gen-' + w.id + '" onclick="event.stopPropagation();fetchExample(\'' + w.id + '\')" style="margin-top:6px;"><i class="fa-solid fa-robot"></i> 生成例句</button>';
+    }
+    // Auto-fetch example if needed
+    if (!w.example && !w._exampleFetching) { w._exampleFetching = true; fetchExample(w.id); }
+    return;
+  }
+
+  // ── Slow path: full rebuild (first render or filter/pool changed) ──
+  _fcCache = null;
   document.getElementById('main-content').innerHTML = `<div class="flashcard-container card-enter">
     <button class="btn-back-to-session" onclick="goBackToSessionStart()"><i class="fa-solid fa-arrow-left"></i> 返回今日复习</button>
     <div class="filter-bar">${['all','due','learning','new','mastered','starred'].map(f =>
       `<button onclick="setFlashcardFilter('${f}')" class="${flashcardFilter===f?'active':''}">${f==='all'?'全部':f==='due'?'<i class="fa-solid fa-hourglass-half"></i>'+countByCategory('due'):f==='learning'?'<i class="fa-solid fa-calendar"></i>'+countByCategory('learning'):f==='new'?'<i class="fa-solid fa-pen-to-square"></i>'+countByCategory('new'):f==='mastered'?'<i class="fa-solid fa-circle-check"></i>'+countByCategory('mastered'):'<i class="fa-solid fa-star"></i>'+starredCount()}</button>`
     ).join('')}</div>
-    <div class="word-progress">${flashcardIndex+1} / ${flashcardPool.length} · <span class="card-srs-badge ${badge}">${label}</span></div>
+    <div class="word-progress" id="fc-progress">${flashcardIndex+1} / ${flashcardPool.length} · <span class="card-srs-badge ${badge}">${label}</span></div>
 
     <div class="card-stage" id="card-stage">
       <button class="star-btn-card ${starredClass}" id="star-btn" onclick="event.stopPropagation();toggleStar('${w.id}');renderStarBtn()" title="收藏"><i class="fa-solid fa-star"></i></button>
-      <button class="speak-btn-card" onclick="event.stopPropagation();speakWord('${w.ru.replace(/'/g,"\\'")}')" title="发音"><i class="fa-solid fa-volume-high"></i></button>
+      <button class="speak-btn-card" id="fc-speak-btn" onclick="event.stopPropagation();speakWord('${w.ru.replace(/'/g,"\\'")}')" title="发音"><i class="fa-solid fa-volume-high"></i></button>
 
-      <div class="russian-word">${w.ru}</div>
-      <div class="russian-tr">${w.tr||''}</div>
+      <div class="russian-word" id="fc-ru">${w.ru}</div>
+      <div class="russian-tr" id="fc-tr">${w.tr||''}</div>
 
       <div class="answer-reveal answer-hidden" id="answer-reveal">
-        <div class="chinese-def">${w.zh}</div>
-        <div class="word-pos">${w.pos||''}</div>
+        <div class="chinese-def" id="fc-zh">${w.zh}</div>
+        <div class="word-pos" id="fc-pos">${w.pos||''}</div>
         <div class="word-example" id="word-example-${w.id}">
           ${w.example ? '<div class="example-text">' + escHtml(w.example) + '</div>' + (w.exampleZh ? '<div class="example-zh">' + escHtml(toSimplified(w.exampleZh)) + '</div>' : '') + '<button class="btn-speak-example" onclick="event.stopPropagation();speakWord(\'' + w.example.replace(/'/g,"\\'") + '\')\" style=\"margin-top:8px;\"><i class=\"fa-solid fa-volume-high\"></i> 朗读</button>' : '<button class="btn-generate-example" id="btn-gen-' + w.id + '" onclick="event.stopPropagation();fetchExample(\'' + w.id + '\')\" style=\"margin-top:6px;\"><i class=\"fa-solid fa-robot\"></i> 生成例句</button>'}
         </div>
@@ -2799,6 +2831,24 @@ function renderFlashcard() {
       <button class="btn btn-ghost" onclick="shuffleCard()"><i class="fa-solid fa-shuffle"></i></button>
       <button class="btn btn-ghost" onclick="nextCard()">→</button>
     </div></div>`;
+
+  // Cache DOM references for fast updates on next card
+  _fcCache = {
+    poolRef: flashcardPool,
+    filter: flashcardFilter,
+    ruEl: document.getElementById('fc-ru'),
+    trEl: document.getElementById('fc-tr'),
+    zhEl: document.getElementById('fc-zh'),
+    posEl: document.getElementById('fc-pos'),
+    progressEl: document.getElementById('fc-progress'),
+    starBtn: document.getElementById('star-btn'),
+    speakBtn: document.getElementById('fc-speak-btn'),
+    revealEl: document.getElementById('answer-reveal'),
+    stageEl: document.getElementById('card-stage'),
+    actionsEl: document.getElementById('stage-actions'),
+    exampleEl: document.getElementById('word-example-' + w.id)
+  };
+
   // Auto-fetch example if word does not have one yet
   if (!w.example && !w._exampleFetching) {
     w._exampleFetching = true;
@@ -3437,7 +3487,7 @@ function updateMemoryPairs() {
 //  WORD LIST
 // ========================================================
 let listPage = 0;
-const LIST_PAGE_SIZE = 100;
+const LIST_PAGE_SIZE = 50;
 
 function toggleListDictionary() { listShowDictionary = !listShowDictionary; listSearchQuery = ''; listPage = 0; renderList(); }
 

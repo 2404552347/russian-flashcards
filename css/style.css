@@ -225,8 +225,8 @@
   .stats span { white-space: nowrap; }
   .russian-word, .quiz-prompt, .listen-word { font-feature-settings: "kern"; text-rendering: optimizeLegibility; }
 
-  main { width: 100%; max-width: 600px; padding: 10px var(--space-lg) 130px; flex: 1; }
-  #main-content { animation: pageIn .3s cubic-bezier(.4,0,.2,1); }
+  main { width: 100%; max-width: 600px; padding: 10px var(--space-lg) 130px; flex: 1; contain: layout style; }
+  #main-content { animation: pageIn .3s cubic-bezier(.4,0,.2,1); contain: layout style; }
 
   /* Filter Bar */
   .filter-bar { display: flex; gap: 4px; flex-wrap: wrap; margin-bottom: var(--space); background: var(--border-light); border-radius: var(--radius-sm); padding: 3px; }
@@ -253,7 +253,7 @@
   .quiz-type-bar button.active { background: var(--card); color: var(--text); box-shadow: var(--shadow-sm); }
 
   /* ── MaiMai-Style Flashcard ─── */
-  .flashcard-container { display: flex; flex-direction: column; gap: var(--space-md); }
+  .flashcard-container { display: flex; flex-direction: column; gap: var(--space-md); contain: layout style; }
 
   .word-progress { text-align: center; font-size: var(--text-sm); color: var(--text-muted); margin-bottom: 4px; }
   .word-progress strong { color: var(--text); }
@@ -268,7 +268,8 @@
     align-items: center; justify-content: center;
     animation: cardEnter .35s ease;
     border: 1px solid var(--glass-border);
-    contain: layout style;
+    contain: layout style paint;
+    will-change: transform;
   }
   /* Subtle radial glow from top */
   .card-stage::after {
@@ -339,10 +340,10 @@
   .progress-fill { height: 100%; background: var(--primary); transition: width .3s; border-radius: 2px; }
 
   /* ── Quiz ──────────────── */
-  .quiz-container { display: flex; flex-direction: column; gap: var(--space-md); }
+  .quiz-container { display: flex; flex-direction: column; gap: var(--space-md); contain: layout style; }
   .quiz-prompt { font-size: var(--text-3xl); font-weight: 600; text-align: center; padding: 30px 0 0; }
   .quiz-prompt-sub { font-size: 14px; color: var(--text-muted); text-align: center; margin-top: -8px; }
-  .options { display: grid; gap: var(--space-sm); grid-template-columns: 1fr 1fr; }
+  .options { display: grid; gap: var(--space-sm); grid-template-columns: 1fr 1fr; contain: layout style; }
   .option {
     background: var(--card); border: 1.5px solid var(--border); border-radius: var(--radius);
     padding: var(--space-md); font-size: var(--text-base); cursor: pointer; text-align: center;
@@ -420,7 +421,7 @@
   .wordpack-info { flex: 1; min-width: 0; }
   .wordpack-name { font-size: 13px; font-weight: 600; color: var(--text); }
   .wordpack-desc { font-size: 11px; color: var(--text-muted); margin-top: 2px; }
-  .wordlist { display: flex; flex-direction: column; gap: 1px; }
+  .wordlist { display: flex; flex-direction: column; gap: 1px; contain: layout style; }
   .word-item {
     display: flex; justify-content: space-between; align-items: center;
     padding: var(--space) 14px; background: var(--card); border-radius: var(--radius);
@@ -588,7 +589,7 @@
   @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: .5; } }
 
   /* ── Stats Dashboard ────── */
-  .stats-grid { display: grid; gap: var(--space); grid-template-columns: 1fr 1fr; margin-bottom: var(--space-md); }
+  .stats-grid { display: grid; gap: var(--space); grid-template-columns: 1fr 1fr; margin-bottom: var(--space-md); contain: layout style; }
   .stat-card {
     background: var(--card); border-radius: var(--radius-md); padding: var(--space-lg);
     box-shadow: var(--shadow-sm); text-align: center;
