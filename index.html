@@ -65,7 +65,7 @@
 	  .account-item{display:block;width:100%;text-align:left;padding:10px 14px;border-radius:var(--radius-sm);margin-bottom:4px;border:1.5px solid transparent;cursor:pointer;font-size:14px;font-weight:500;transition:all var(--transition-fast)}
 	  .account-item:hover{background:var(--border-light);border-color:var(--border)}
 	  /* Auth screen hides the app */
-	  #auth-screen:not([style*="display: none"]) ~ #app-screen{display:none!important}
+	  #auth-screen:not([style*="display: none"]) ~ #app-screen{display:none!important}#app-screen{width:100%;max-width:600px;display:flex;flex-direction:column;align-items:center}header{width:100%}
 	</style>
 <!-- PWA -->
 <link rel="manifest" href="manifest.json">
@@ -84,10 +84,11 @@
 	<!-- Preload critical CSS — downloads start immediately, in parallel -->
 	<link rel="preload" as="style" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
 	<link rel="preload" as="style" href="css/style.css?v=9">
+		<link rel="preload" as="script" href="js/app.js?v=7">
 	<!-- Apply (preloaded resources hit cache, zero re-download) -->
 		<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css" media="print" onload="this.media='all'">
-	<link rel="stylesheet" href="css/style.css?v=9">
-		<noscript><link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css"></noscript>
+	<link rel="stylesheet" href="css/style.css?v=9" media="print" onload="this.media='all'">
+		<noscript><link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css"><link rel="stylesheet" href="css/style.css?v=9"></noscript>
 </head>
 <body>
 
