@@ -2358,7 +2358,12 @@ function setFlashcardFilter(f) { flashcardFilter = f; flashcardIndex = 0; applyF
 
 function renderSessionStart() {
   if (WORDS.length === 0) {
-    document.getElementById('main-content').innerHTML = '<div class="empty-state"><div style="font-size:40px;margin-bottom:12px;"><i class="fa-solid fa-inbox"></i></div><div>还没有单词，点击「导入」添加单词</div></div>';
+    document.getElementById('main-content').innerHTML = `<div class="empty-state">
+      <div class="empty-state-icon"><i class="fa-solid fa-book-open"></i></div>
+      <h3>开始学习吧</h3>
+      <p>导入单词或从内置词典中选择，开始你的语言学习之旅</p>
+      <button class="btn btn-primary" onclick="openImportModal()" style="width:auto;display:inline-flex;align-items:center;gap:6px;"><i class="fa-solid fa-file-import"></i> 导入单词</button>
+    </div>`;
     return;
   }
 
@@ -2654,7 +2659,12 @@ let cardStage = 1; // 1 = question, 2 = answer revealed
 
 function renderFlashcard() {
   if (WORDS.length === 0) {
-    document.getElementById('main-content').innerHTML = '<div class="empty-state"><div style="font-size:40px;margin-bottom:12px;"><i class="fa-solid fa-inbox"></i></div><div>还没有单词，点击「导入」添加单词</div></div>';
+    document.getElementById('main-content').innerHTML = `<div class="empty-state">
+      <div class="empty-state-icon"><i class="fa-solid fa-book-open"></i></div>
+      <h3>开始学习吧</h3>
+      <p>导入单词或从内置词典中选择，开始你的语言学习之旅</p>
+      <button class="btn btn-primary" onclick="openImportModal()" style="width:auto;display:inline-flex;align-items:center;gap:6px;"><i class="fa-solid fa-file-import"></i> 导入单词</button>
+    </div>`;
     return;
   }
   applyFilter();
@@ -2665,7 +2675,7 @@ function renderFlashcard() {
       <div class="filter-bar">${['all','due','learning','new','mastered','starred'].map(f =>
         `<button onclick="setFlashcardFilter('${f}')" class="${flashcardFilter===f?'active':''}">${f==='all'?'全部':f==='due'?'<i class="fa-solid fa-hourglass-half"></i>待复习':f==='learning'?'<i class="fa-solid fa-calendar"></i>学习中':f==='new'?'<i class="fa-solid fa-pen-to-square"></i>新词':f==='mastered'?'<i class="fa-solid fa-circle-check"></i>已掌握':'<i class="fa-solid fa-star"></i>收藏'}</button>`
       ).join('')}</div>
-      <div class="empty-state"><div style="font-size:40px;margin-bottom:12px;"><i class="fa-solid fa-bullseye"></i></div><div>${msgs[flashcardFilter]}</div></div></div>`;
+      <div class="empty-state"><div class="empty-state-icon"><i class="fa-solid fa-bullseye"></i></div><h3>${msgs[flashcardFilter]}</h3><p>选择其他筛选条件或导入新单词</p></div></div>`;
     return;
   }
   if (flashcardIndex >= flashcardPool.length) flashcardIndex = 0;
@@ -2938,7 +2948,7 @@ function startQuiz() {
 
 function renderQuiz() {
   if (WORDS.length === 0) {
-    document.getElementById('main-content').innerHTML = '<div class="empty-state"><div style="font-size:40px;margin-bottom:12px;"><i class="fa-solid fa-inbox"></i></div><div>还没有单词</div></div>';
+    document.getElementById('main-content').innerHTML = '<div class="empty-state"><div class="empty-state-icon"><i class="fa-solid fa-bullseye"></i></div><h3>还没有单词</h3><p>导入单词后即可开始测验</p></div>';
     return;
   }
   if (quizWords.length === 0) { startQuiz(); return; }
@@ -3099,10 +3109,10 @@ function startMemoryGame() {
   // Guard: need at least 8 words
   if (WORDS.length < 8) {
     document.getElementById('main-content').innerHTML = `<div class="memory-empty">
-      <div class="memory-empty-icon"><i class="fa-solid fa-puzzle-piece"></i></div>
+      <div class="empty-state-icon"><i class="fa-solid fa-puzzle-piece"></i></div>
       <h3>需要至少 8 个单词</h3>
       <p>当前只有 ${WORDS.length} 个单词，添加更多单词后再来玩吧！</p>
-      <button class="btn btn-outline" style="margin-top:16px;width:auto;display:inline-block;" onclick="setMode('flashcard')">
+      <button class="btn btn-primary" style="margin-top:16px;width:auto;display:inline-flex;align-items:center;gap:6px;" onclick="setMode('flashcard')">
         <i class="fa-solid fa-layer-group"></i> 去背单词
       </button>
     </div>`;
@@ -3363,11 +3373,10 @@ function renderList() {
   // ── Normal Word List Mode ──
   if (WORDS.length === 0) {
     document.getElementById('main-content').innerHTML = `<div class="empty-state">
-      <div style="font-size:40px;margin-bottom:12px;"><i class="fa-solid fa-inbox"></i></div>
-      <div>还没有单词</div>
-      <div style="margin-top:8px;">
-        <button class="btn btn-outline btn-sm" onclick="toggleListDictionary()"><i class="fa-solid fa-book"></i> 浏览内置词典</button>
-      </div>
+      <div class="empty-state-icon"><i class="fa-solid fa-list-check"></i></div>
+      <h3>还没有单词</h3>
+      <p>导入单词或浏览内置词典开始学习</p>
+      <button class="btn btn-primary" onclick="toggleListDictionary()" style="width:auto;display:inline-flex;align-items:center;gap:6px;"><i class="fa-solid fa-book"></i> 浏览内置词典</button>
     </div>`;
     return;
   }
@@ -4360,7 +4369,7 @@ function drawForgettingCurve() {
 // ========================================================
 function renderListen() {
   if (WORDS.length === 0) {
-    document.getElementById('main-content').innerHTML = '<div class="empty-state"><div style="font-size:40px;margin-bottom:12px;"><i class="fa-solid fa-headphones"></i></div><div>还没有单词，请先导入单词</div></div>';
+    document.getElementById('main-content').innerHTML = '<div class="empty-state"><div class="empty-state-icon"><i class="fa-solid fa-headphones"></i></div><h3>还没有单词</h3><p>导入单词后即可开始听力练习</p></div>';
     return;
   }
   if (listenIndex >= WORDS.length) listenIndex = 0;
