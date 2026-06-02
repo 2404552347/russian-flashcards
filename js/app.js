@@ -195,7 +195,7 @@ function showAuthScreen() {
 
 function showAppScreen() {
   document.getElementById('auth-screen').style.display = 'none';
-  document.getElementById('app-screen').style.display = 'block';
+  document.getElementById('app-screen').style.display = '';
 }
 
 function showAuthTab(tab) {
