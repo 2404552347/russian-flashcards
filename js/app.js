@@ -4807,6 +4807,103 @@ function listenPrev() {
 }
 
 // ========================================================
+//  BACKGROUND AUDIO — keep alive when screen off / backgrounded
+// ========================================================
+let _wakeLock = null;
+let _silentAudioCtx = null;
+let _silentGain = null;
+
+async function requestWakeLock() {
+  if ('wakeLock' in navigator && !_wakeLock) {
+    try {
+      _wakeLock = await navigator.wakeLock.request('screen');
+      _wakeLock.addEventListener('release', () => { _wakeLock = null; });
+    } catch(e) { /* not supported or permission denied */ }
+  }
+}
+
+async function releaseWakeLock() {
+  if (_wakeLock) {
+    try { await _wakeLock.release(); } catch(e) {}
+    _wakeLock = null;
+  }
+}
+
+function startSilentAudio() {
+  if (_silentAudioCtx) return;
+  try {
+    _silentAudioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    // Silent oscillator loop — tricks OS into treating page as "playing audio"
+    // so JS engine stays alive when app is backgrounded
+    const osc = _silentAudioCtx.createOscillator();
+    _silentGain = _silentAudioCtx.createGain();
+    _silentGain.gain.value = 0.0001; // near-zero volume but still "active"
+    osc.connect(_silentGain);
+    _silentGain.connect(_silentAudioCtx.destination);
+    osc.frequency.value = 1;
+    osc.start();
+    // Resume if suspended (iOS requires user gesture, but after that it works)
+    if (_silentAudioCtx.state === 'suspended') _silentAudioCtx.resume();
+  } catch(e) { /* not available */ }
+}
+
+function stopSilentAudio() {
+  if (_silentAudioCtx) {
+    _silentAudioCtx.close().catch(() => {});
+    _silentAudioCtx = null;
+    _silentGain = null;
+  }
+}
+
+function updateMediaSession(title, artist) {
+  if (!('mediaSession' in navigator)) return;
+  try {
+    navigator.mediaSession.metadata = new MediaMetadata({
+      title: title, artist: artist,
+    });
+    navigator.mediaSession.setActionHandler('play', () => {
+      if (currentMode === 'listen' && !listenPlaying) startListening();
+      else if (currentMode === 'readaloud' && !readAloudPlaying) readAloudSpeak();
+    });
+    navigator.mediaSession.setActionHandler('pause', () => {
+      if (currentMode === 'listen') stopListening();
+      else if (currentMode === 'readaloud') readAloudPause();
+    });
+    navigator.mediaSession.setActionHandler('stop', () => {
+      if (currentMode === 'listen') stopListening();
+      else if (currentMode === 'readaloud') readAloudStop();
+    });
+  } catch(e) {}
+}
+
+function clearMediaSession() {
+  if (!('mediaSession' in navigator)) return;
+  try {
+    navigator.mediaSession.metadata = null;
+    ['play','pause','stop'].forEach(a => navigator.mediaSession.setActionHandler(a, null));
+  } catch(e) {}
+}
+
+// ── Hook into listen mode ───────────────────────────────
+const _origStartListening = startListening;
+startListening = function() {
+  _origStartListening();
+  requestWakeLock();
+  startSilentAudio();
+  const w = WORDS[listenIndex];
+  const folderName = folders.find(f => f.id === activeFolderId)?.name || '';
+  updateMediaSession(w ? w.ru : '听力播放', folderName || '单词闪卡');
+};
+
+const _origStopListening = stopListening;
+stopListening = function() {
+  _origStopListening();
+  releaseWakeLock();
+  stopSilentAudio();
+  clearMediaSession();
+};
+
+// ========================================================
 //  READ ALOUD MODE — OCR + camera + TTS
 // ========================================================
 
@@ -5226,6 +5323,9 @@ function readAloudSpeak() {
   readAloudSentenceIdx = 0;
   readAloudPlaying = true;
   updateReadAloudPlayBtn(true);
+  requestWakeLock();
+  startSilentAudio();
+  updateMediaSession('朗读播放', text.substring(0, 50));
   readAloudSpeakNext();
 }
 
@@ -5291,6 +5391,9 @@ function readAloudStop() {
   readAloudSentenceIdx = 0;
   if ('speechSynthesis' in window) window.speechSynthesis.cancel();
   updateReadAloudPlayBtn(false);
+  releaseWakeLock();
+  stopSilentAudio();
+  clearMediaSession();
 }
 
 function updateReadAloudPlayBtn(playing) {
