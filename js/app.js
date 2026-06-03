@@ -5129,14 +5129,20 @@ function readAloudCapture() {
   const video = document.getElementById('readaloud-video');
   if (!video) return;
 
-  // Draw a thumbnail preview
-  const thumbCanvas = document.createElement('canvas');
-  thumbCanvas.width = video.videoWidth || 640;
-  thumbCanvas.height = video.videoHeight || 480;
-  const thumbCtx = thumbCanvas.getContext('2d');
-  thumbCtx.drawImage(video, 0, 0, thumbCanvas.width, thumbCanvas.height);
+  // Capture full-res frame BEFORE stopping camera
+  const fullCanvas = document.createElement('canvas');
+  fullCanvas.width = video.videoWidth || 640;
+  fullCanvas.height = video.videoHeight || 480;
+  const fullCtx = fullCanvas.getContext('2d');
+  fullCtx.drawImage(video, 0, 0, fullCanvas.width, fullCanvas.height);
 
-  // Show thumbnail
+  // Show thumbnail preview
+  const thumbCanvas = document.createElement('canvas');
+  const thumbW = 320, thumbH = Math.round(fullCanvas.height * (320 / fullCanvas.width));
+  thumbCanvas.width = thumbW; thumbCanvas.height = thumbH;
+  const thumbCtx = thumbCanvas.getContext('2d');
+  thumbCtx.drawImage(fullCanvas, 0, 0, thumbW, thumbH);
+
   const preview = document.getElementById('readaloud-camera-preview');
   if (preview) {
     preview.innerHTML =
@@ -5147,9 +5153,9 @@ function readAloudCapture() {
       '</div>';
   }
 
-  // Pass video for full-quality preprocessing
+  // Stop camera AFTER capturing, then OCR from full-res canvas
   readAloudStopCamera();
-  readAloudOcr(video, 'video');
+  readAloudOcr(fullCanvas, 'canvas');
 }
 
 // ── Image upload ──────────────────────────────────────
