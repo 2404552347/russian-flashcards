@@ -2291,8 +2291,30 @@ function renderAll() {
 // ========================================================
 //  NAVIGATION
 // ========================================================
+function toggleMoreMenu() {
+  const menu = document.getElementById('more-menu');
+  if (!menu) return;
+  menu.classList.toggle('show');
+}
+
+function closeMoreMenu() {
+  const menu = document.getElementById('more-menu');
+  if (menu) menu.classList.remove('show');
+}
+
+// Click outside to close
+document.addEventListener('click', function(e) {
+  const menu = document.getElementById('more-menu');
+  const moreBtn = document.getElementById('nav-more');
+  if (!menu || !moreBtn) return;
+  if (menu.classList.contains('show') && !menu.contains(e.target) && !moreBtn.contains(e.target)) {
+    menu.classList.remove('show');
+  }
+});
+
 function setMode(mode) {
   if (memoryTimerInterval) { clearInterval(memoryTimerInterval); memoryTimerInterval = null; }
+  closeMoreMenu();
   // Close camera if switching away from readaloud
   if (currentMode === 'readaloud' && mode !== 'readaloud') {
     if (readAloudPlaying) readAloudStop();
@@ -2305,9 +2327,9 @@ function setMode(mode) {
   currentMode = mode;
   document.querySelectorAll('.bottom-nav .nav-item').forEach(b => b.classList.remove('active'));
   const navEl = document.getElementById('nav-' + mode);
-  if (navEl) navEl.classList.add('active');
+  if (navEl) { navEl.classList.add('active'); }
+  else { document.getElementById('nav-more')?.classList.add('active'); }
   listSearchQuery = '';
-  // If entering flashcard mode, check for active session
   if (mode === 'flashcard') {
     if (sessionActive) {
       // Session is in progress — continue, keep flashcardIndex

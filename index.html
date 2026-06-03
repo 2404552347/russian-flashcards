@@ -83,11 +83,11 @@
 <script src="https://cdn.jsdelivr.net/npm/mammoth@1.6.0/mammoth.browser.min.js" defer></script>
 	<!-- Preload critical CSS — downloads start immediately, in parallel -->
 	<link rel="preload" as="style" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
-	<link rel="preload" as="style" href="css/style.css?v=14">
+	<link rel="preload" as="style" href="css/style.css?v=15">
 	<!-- Apply (preloaded resources hit cache, zero re-download) -->
 		<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css" media="print" onload="this.media='all'">
-	<link rel="stylesheet" href="css/style.css?v=14" media="print" onload="this.media='all'">
-		<noscript><link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css"><link rel="stylesheet" href="css/style.css?v=14"></noscript>
+	<link rel="stylesheet" href="css/style.css?v=15" media="print" onload="this.media='all'">
+		<noscript><link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css"><link rel="stylesheet" href="css/style.css?v=15"></noscript>
 </head>
 <body>
 
@@ -205,17 +205,27 @@
     <button class="nav-item" id="nav-list" onclick="setMode('list')">
       <span class="nav-icon"><i class="fa-solid fa-list-check"></i></span>词汇表
     </button>
-    <button class="nav-item" id="nav-listen" onclick="setMode('listen')">
-      <span class="nav-icon"><i class="fa-solid fa-headphones"></i></span>听力
-    </button>
-    <button class="nav-item" id="nav-stats" onclick="setMode('stats')">
-      <span class="nav-icon"><i class="fa-solid fa-chart-bar"></i></span>统计
-    </button>
-    <button class="nav-item" id="nav-game" onclick="setMode('game')">
-      <span class="nav-icon"><i class="fa-solid fa-puzzle-piece"></i></span>记忆游戏
-    </button>
     <button class="nav-item" id="nav-readaloud" onclick="setMode('readaloud')">
       <span class="nav-icon"><i class="fa-solid fa-book-open-reader"></i></span>朗读
+    </button>
+    <button class="nav-item" id="nav-more" onclick="event.stopPropagation();toggleMoreMenu()">
+      <span class="nav-icon"><i class="fa-solid fa-ellipsis"></i></span>更多
+    </button>
+  </div>
+
+  <!-- More menu popup -->
+  <div class="more-menu" id="more-menu">
+    <button class="more-menu-item" onclick="setMode('listen')">
+      <span class="more-menu-icon"><i class="fa-solid fa-headphones"></i></span>
+      <span>听力</span>
+    </button>
+    <button class="more-menu-item" onclick="setMode('stats')">
+      <span class="more-menu-icon"><i class="fa-solid fa-chart-bar"></i></span>
+      <span>统计</span>
+    </button>
+    <button class="more-menu-item" onclick="setMode('game')">
+      <span class="more-menu-icon"><i class="fa-solid fa-puzzle-piece"></i></span>
+      <span>记忆游戏</span>
     </button>
   </div>
 
@@ -398,7 +408,7 @@
 </div>
 
 	<script src="js/wordlists.js?v=7" defer></script>
-	<script src="js/core.js?v=10" defer></script>
+	<script src="js/core.js?v=11" defer></script>
 	<!-- js/app.js loaded lazily by core.js after successful login -->
 
 </body>

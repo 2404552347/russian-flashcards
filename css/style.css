@@ -486,6 +486,37 @@
   .nav-item:hover { color: var(--primary); background: var(--primary-light); }
   .nav-item:active .nav-icon { transform: scale(.9); }
 
+  /* ── More Menu ──────────── */
+  .more-menu {
+    display: none; flex-direction: column; gap: 2px;
+    position: fixed; bottom: 90px; right: 16px; z-index: 110;
+    background: var(--glass-bg);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+    border: 1px solid var(--glass-border);
+    border-radius: var(--radius-lg);
+    padding: 6px;
+    box-shadow: var(--shadow-xl);
+    animation: moreMenuIn .2s ease;
+    min-width: 130px;
+  }
+  .more-menu.show { display: flex; }
+  @keyframes moreMenuIn {
+    from { opacity: 0; transform: translateY(8px) scale(.95); }
+    to { opacity: 1; transform: translateY(0) scale(1); }
+  }
+  .more-menu-item {
+    display: flex; align-items: center; gap: 10px;
+    padding: 10px 14px; border: none; background: none;
+    border-radius: var(--radius-sm); cursor: pointer;
+    font-size: 13px; font-weight: 500; color: var(--text);
+    transition: all var(--transition-fast);
+    white-space: nowrap;
+  }
+  .more-menu-item:hover { background: var(--primary-light); color: var(--primary); }
+  .more-menu-icon { font-size: 16px; width: 22px; text-align: center; color: var(--text-muted); }
+  .more-menu-item:hover .more-menu-icon { color: var(--primary); }
+
   /* ── Settings Panel ─────── */
   .settings-panel {
     display: none; position: fixed; inset: 0; z-index: 150;
