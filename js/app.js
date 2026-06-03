@@ -521,6 +521,8 @@ function switchFolder(folderId) {
   quizWords = []; quizIndex = 0; quizAnswered = false; listSearchQuery = '';
   listenIndex = 0; listenRepeatRemaining = listenRepeatCount;
   if (listenPlaying) { stopListening(); }
+  if (readAloudPlaying) { readAloudStop(); }
+  if (readAloudStream) { readAloudStream.getTracks().forEach(t => t.stop()); readAloudStream = null; readAloudCameraOn = false; }
   loadDeck(activeLang, folderId);
   renderAll();
 }
@@ -2291,6 +2293,15 @@ function renderAll() {
 // ========================================================
 function setMode(mode) {
   if (memoryTimerInterval) { clearInterval(memoryTimerInterval); memoryTimerInterval = null; }
+  // Close camera if switching away from readaloud
+  if (currentMode === 'readaloud' && mode !== 'readaloud') {
+    if (readAloudPlaying) readAloudStop();
+    if (readAloudStream) {
+      readAloudStream.getTracks().forEach(t => t.stop());
+      readAloudStream = null;
+      readAloudCameraOn = false;
+    }
+  }
   currentMode = mode;
   document.querySelectorAll('.bottom-nav .nav-item').forEach(b => b.classList.remove('active'));
   const navEl = document.getElementById('nav-' + mode);
@@ -3689,6 +3700,7 @@ function renderMain() {
   else if (currentMode === 'stats') renderStatsDashboard();
   else if (currentMode === 'listen') { stopListening(); renderListen(); }
   else if (currentMode === 'game') startMemoryGame();
+  else if (currentMode === 'readaloud') renderReadAloud();
   else renderList();
 }
 
@@ -4770,6 +4782,498 @@ function listenPrev() {
   listenRepeatRemaining = listenRepeatCount;
   renderListen();
   if (wasPlaying) setTimeout(() => startListening(), 200);
+}
+
+// ========================================================
+//  READ ALOUD MODE — OCR + camera + TTS
+// ========================================================
+
+// ── OCR language config ────────────────────────────────
+const OCR_LANGS = [
+  { code: 'eng+rus', label: '自动检测 (英/俄)', tts: 'ru-RU' },
+  { code: 'rus', label: '俄语', tts: 'ru-RU' },
+  { code: 'eng', label: '英语', tts: 'en-US' },
+  { code: 'chi_sim', label: '中文简体', tts: 'zh-CN' },
+  { code: 'deu', label: '德语', tts: 'de-DE' },
+  { code: 'fra', label: '法语', tts: 'fr-FR' },
+  { code: 'spa', label: '西班牙语', tts: 'es-ES' },
+  { code: 'jpn', label: '日语', tts: 'ja-JP' },
+  { code: 'kor', label: '韩语', tts: 'ko-KR' },
+];
+
+const TTS_LANGS = [
+  { code: 'ru-RU', label: '俄语' },
+  { code: 'en-US', label: '英语' },
+  { code: 'zh-CN', label: '中文' },
+  { code: 'de-DE', label: '德语' },
+  { code: 'fr-FR', label: '法语' },
+  { code: 'es-ES', label: '西班牙语' },
+  { code: 'ja-JP', label: '日语' },
+  { code: 'ko-KR', label: '韩语' },
+];
+
+// ── Dynamic Tesseract.js loader ─────────────────────────
+let _tesseractLoading = false;
+let _tesseractPromise = null;
+
+function loadTesseract() {
+  if (window.Tesseract) return Promise.resolve();
+  if (_tesseractPromise) return _tesseractPromise;
+  _tesseractLoading = true;
+  _tesseractPromise = new Promise((resolve, reject) => {
+    const script = document.createElement('script');
+    script.src = 'https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js';
+    script.onload = () => { _tesseractLoading = false; resolve(); };
+    script.onerror = () => { _tesseractLoading = false; _tesseractPromise = null; reject(new Error('CDN load failed')); };
+    document.head.appendChild(script);
+  });
+  return _tesseractPromise;
+}
+
+// ── Init Tesseract worker (lazy, reused) ──────────────
+async function readAloudInitWorker(lang) {
+  // Lazy-load Tesseract.js CDN on first use
+  try { await loadTesseract(); } catch(e) {
+    showToast('OCR 引擎加载失败，请检查网络连接', 'error');
+    return null;
+  }
+  // If worker exists with same language, reuse
+  if (readAloudTesseractWorker && readAloudOcrLang === lang) {
+    return readAloudTesseractWorker;
+  }
+  // If worker exists but language changed, reinitialize
+  if (readAloudTesseractWorker) {
+    try { await readAloudTesseractWorker.reinitialize(lang); }
+    catch(e) { /* worker may be dead, create new */ readAloudTesseractWorker = null; }
+  }
+  if (!readAloudTesseractWorker) {
+    try {
+      const progressEl = document.getElementById('ocr-progress-bar');
+      const statusEl = document.getElementById('ocr-status-text');
+      readAloudTesseractWorker = await Tesseract.createWorker(lang, 1, {
+        logger: (m) => {
+          if (m.status === 'recognizing text') {
+            if (progressEl) progressEl.style.width = Math.round(m.progress * 100) + '%';
+            if (statusEl) statusEl.textContent = '识别中... ' + Math.round(m.progress * 100) + '%';
+          } else if (m.status === 'loading tesseract core') {
+            if (statusEl) statusEl.textContent = '加载 OCR 引擎...';
+          } else if (m.status === 'initializing tesseract') {
+            if (statusEl) statusEl.textContent = '初始化...';
+          } else if (m.status === 'loading language traineddata') {
+            if (statusEl) statusEl.textContent = '下载语言包 (首次约 10-30MB，后续离线可用)...';
+            if (progressEl) progressEl.style.width = (m.progress * 0.5 * 100) + '%';
+          }
+        }
+      });
+    } catch(e) {
+      console.error('Tesseract init error:', e);
+      readAloudTesseractWorker = null;
+      showToast('OCR 初始化失败，请检查网络连接', 'error');
+      return null;
+    }
+  }
+  readAloudOcrLang = lang;
+  return readAloudTesseractWorker;
+}
+
+// ── OCR from image/canvas ─────────────────────────────
+async function readAloudOcr(imageSource, sourceType) {
+  const progressWrap = document.getElementById('ocr-progress-wrap');
+  const progressBar = document.getElementById('ocr-progress-bar');
+  const statusText = document.getElementById('ocr-status-text');
+  const resultArea = document.getElementById('readaloud-textarea');
+
+  if (progressWrap) progressWrap.style.display = 'block';
+  if (progressBar) progressBar.style.width = '0%';
+  if (statusText) statusText.textContent = '准备 OCR...';
+
+  const worker = await readAloudInitWorker(readAloudOcrLang);
+  if (!worker) {
+    if (progressWrap) progressWrap.style.display = 'none';
+    return;
+  }
+
+  try {
+    let result;
+    if (sourceType === 'canvas') {
+      result = await worker.recognize(imageSource);
+    } else if (sourceType === 'image') {
+      result = await worker.recognize(imageSource);
+    } else if (sourceType === 'url') {
+      result = await worker.recognize(imageSource);
+    }
+    const text = (result.data.text || '').trim();
+    if (text) {
+      if (resultArea) {
+        const existing = resultArea.value.trim();
+        resultArea.value = existing ? existing + '\n' + text : text;
+      }
+      if (statusText) statusText.textContent = '识别完成！';
+      if (progressBar) progressBar.style.width = '100%';
+      showToast('已识别 ' + text.length + ' 个字符', 'success');
+    } else {
+      if (statusText) statusText.textContent = '未识别到文字，请重试';
+      showToast('未识别到文字，尝试调整角度或光线', 'warning');
+    }
+  } catch(e) {
+    console.error('OCR error:', e);
+    if (statusText) statusText.textContent = '识别失败';
+    showToast('OCR 识别失败，请重试', 'error');
+  }
+  setTimeout(() => {
+    if (progressWrap) progressWrap.style.display = 'none';
+  }, 2000);
+}
+
+// ── Camera ────────────────────────────────────────────
+async function readAloudStartCamera() {
+  const preview = document.getElementById('readaloud-camera-preview');
+  if (!preview) return;
+
+  // If already on, stop
+  if (readAloudCameraOn) {
+    readAloudStopCamera();
+    return;
+  }
+
+  if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+    showToast('您的浏览器不支持摄像头访问', 'error');
+    return;
+  }
+
+  try {
+    readAloudStream = await navigator.mediaDevices.getUserMedia({
+      video: { facingMode: 'environment', width: { ideal: 1280 }, height: { ideal: 720 } },
+      audio: false
+    });
+    readAloudCameraOn = true;
+
+    preview.innerHTML =
+      '<video id="readaloud-video" autoplay playsinline style="width:100%;border-radius:var(--radius);display:block;"></video>' +
+      '<div class="readaloud-camera-actions">' +
+      '<button class="btn btn-primary" onclick="readAloudCapture()" style="width:auto;"><i class="fa-solid fa-camera"></i> 拍照识别</button>' +
+      '<button class="btn btn-ghost" onclick="readAloudStopCamera()" style="width:auto;"><i class="fa-solid fa-xmark"></i> 关闭</button>' +
+      '</div>';
+    preview.style.display = 'block';
+
+    const video = document.getElementById('readaloud-video');
+    if (video) { video.srcObject = readAloudStream; }
+
+    // Toggle camera button state
+    const camBtn = document.getElementById('btn-open-camera');
+    if (camBtn) { camBtn.innerHTML = '<i class="fa-solid fa-camera-retro"></i> 关闭摄像头'; camBtn.classList.add('active'); }
+  } catch(e) {
+    console.error('Camera error:', e);
+    readAloudCameraOn = false;
+    readAloudStream = null;
+    if (e.name === 'NotAllowedError' || e.name === 'PermissionDeniedError') {
+      showToast('摄像头权限被拒绝，请在浏览器设置中允许', 'error');
+    } else if (e.name === 'NotFoundError') {
+      showToast('未找到摄像头设备', 'error');
+    } else {
+      showToast('摄像头启动失败: ' + e.message, 'error');
+    }
+  }
+}
+
+function readAloudStopCamera() {
+  if (readAloudStream) {
+    readAloudStream.getTracks().forEach(t => t.stop());
+    readAloudStream = null;
+  }
+  readAloudCameraOn = false;
+  const preview = document.getElementById('readaloud-camera-preview');
+  if (preview) { preview.style.display = 'none'; preview.innerHTML = ''; }
+  const camBtn = document.getElementById('btn-open-camera');
+  if (camBtn) { camBtn.innerHTML = '<i class="fa-solid fa-camera"></i> 拍照'; camBtn.classList.remove('active'); }
+}
+
+function readAloudCapture() {
+  const video = document.getElementById('readaloud-video');
+  if (!video) return;
+
+  const canvas = document.createElement('canvas');
+  canvas.width = video.videoWidth || 640;
+  canvas.height = video.videoHeight || 480;
+  const ctx = canvas.getContext('2d');
+  ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+
+  // Show thumbnail
+  const preview = document.getElementById('readaloud-camera-preview');
+  if (preview) {
+    preview.innerHTML =
+      '<div style="text-align:center;padding:8px;">' +
+      '<img src="' + canvas.toDataURL('image/jpeg', 0.85) + '" style="max-width:100%;max-height:200px;border-radius:8px;" alt="capture">' +
+      '<div style="margin-top:8px;font-size:13px;color:var(--text-secondary);">已拍照，正在识别...</div>' +
+      '<button class="btn btn-ghost btn-sm" onclick="readAloudStartCamera()" style="margin-top:8px;"><i class="fa-solid fa-camera"></i> 重新拍照</button>' +
+      '</div>';
+  }
+
+  readAloudStopCamera();
+  readAloudOcr(canvas, 'canvas');
+}
+
+// ── Image upload ──────────────────────────────────────
+function readAloudHandleImage(file) {
+  if (!file) return;
+  if (!file.type.startsWith('image/')) {
+    showToast('请选择图片文件', 'warning');
+    return;
+  }
+  const reader = new FileReader();
+  reader.onload = function(e) {
+    const img = new Image();
+    img.onload = function() {
+      showToast('图片已加载，开始识别...', 'info');
+      readAloudOcr(img, 'image');
+    };
+    img.src = e.target.result;
+  };
+  reader.readAsDataURL(file);
+}
+
+// ── TTS: speak sentences one by one ───────────────────
+function readAloudSpeak() {
+  const textarea = document.getElementById('readaloud-textarea');
+  if (!textarea) return;
+  const text = textarea.value.trim();
+  if (!text) { showToast('请先输入文字或拍照识别', 'warning'); return; }
+  if (!('speechSynthesis' in window)) { showToast('您的浏览器不支持语音合成', 'error'); return; }
+
+  // If already playing, resume after pause
+  if (readAloudPlaying && window.speechSynthesis.paused) {
+    window.speechSynthesis.resume();
+    updateReadAloudPlayBtn(true);
+    return;
+  }
+  // If already speaking, pause
+  if (readAloudPlaying && window.speechSynthesis.speaking) {
+    window.speechSynthesis.pause();
+    updateReadAloudPlayBtn(false);
+    return;
+  }
+
+  // Split into sentences
+  readAloudSentences = text.split(/(?<=[.!?。！？\n])\s*/).filter(s => s.trim());
+  if (readAloudSentences.length === 0) { showToast('未找到可朗读的文本', 'warning'); return; }
+  readAloudSentenceIdx = 0;
+  readAloudPlaying = true;
+  updateReadAloudPlayBtn(true);
+  readAloudSpeakNext();
+}
+
+function readAloudSpeakNext() {
+  if (!readAloudPlaying || readAloudSentenceIdx >= readAloudSentences.length) {
+    readAloudStop();
+    return;
+  }
+  const sentence = readAloudSentences[readAloudSentenceIdx].trim();
+  if (!sentence) { readAloudSentenceIdx++; readAloudSpeakNext(); return; }
+
+  window.speechSynthesis.cancel();
+  const utterance = new SpeechSynthesisUtterance(sentence);
+  utterance.lang = readAloudSpeechLang;
+  utterance.rate = readAloudRate;
+
+  // Try to match voice
+  const voices = speechSynthesis.getVoices();
+  if (voices.length) {
+    const prefix = readAloudSpeechLang.split('-')[0];
+    const voice = voices.find(v => v.lang.startsWith(prefix));
+    if (voice) utterance.voice = voice;
+  }
+
+  // Highlight current sentence in textarea
+  const textarea = document.getElementById('readaloud-textarea');
+  if (textarea) {
+    const fullText = textarea.value;
+    const idx = fullText.indexOf(sentence);
+    if (idx >= 0) {
+      textarea.focus();
+      textarea.setSelectionRange(idx, idx + sentence.length);
+    }
+  }
+
+  utterance.onend = () => {
+    readAloudSentenceIdx++;
+    if (readAloudPlaying) {
+      setTimeout(() => readAloudSpeakNext(), 300);
+    }
+  };
+  utterance.onerror = (e) => {
+    // Ignore 'canceled' errors from intentional stop
+    if (e.error !== 'canceled' && e.error !== 'interrupted') {
+      console.error('TTS error:', e);
+      readAloudSentenceIdx++;
+      if (readAloudPlaying) readAloudSpeakNext();
+    }
+  };
+  speechSynthesis.speak(utterance);
+}
+
+function readAloudPause() {
+  if (readAloudPlaying && window.speechSynthesis.speaking) {
+    window.speechSynthesis.pause();
+    updateReadAloudPlayBtn(false);
+  }
+}
+
+function readAloudStop() {
+  readAloudPlaying = false;
+  readAloudSentences = [];
+  readAloudSentenceIdx = 0;
+  if ('speechSynthesis' in window) window.speechSynthesis.cancel();
+  updateReadAloudPlayBtn(false);
+}
+
+function updateReadAloudPlayBtn(playing) {
+  const btn = document.getElementById('btn-readaloud-play');
+  if (!btn) return;
+  if (playing) {
+    btn.innerHTML = '<i class="fa-solid fa-pause"></i> 暂停';
+    btn.classList.add('playing');
+  } else {
+    btn.innerHTML = '<i class="fa-solid fa-play"></i> 朗读';
+    btn.classList.remove('playing');
+  }
+}
+
+// ── Clear textarea ────────────────────────────────────
+function readAloudClear() {
+  readAloudStop();
+  const textarea = document.getElementById('readaloud-textarea');
+  if (textarea) textarea.value = '';
+}
+
+// ── Update OCR language ───────────────────────────────
+function readAloudUpdateOcrLang(langCode) {
+  readAloudOcrLang = langCode;
+  // Also auto-switch TTS language to match
+  const match = OCR_LANGS.find(l => l.code === langCode);
+  if (match && match.tts !== readAloudSpeechLang) {
+    readAloudSpeechLang = match.tts;
+    const sel = document.getElementById('readaloud-tts-lang');
+    if (sel) sel.value = match.tts;
+  }
+  // Invalidate worker so it reloads with new languages
+  if (readAloudTesseractWorker) {
+    readAloudTesseractWorker.terminate().catch(() => {});
+    readAloudTesseractWorker = null;
+  }
+  // Refresh UI
+  renderReadAloud();
+}
+
+// ── Update TTS language ───────────────────────────────
+function readAloudUpdateTtsLang(langCode) {
+  readAloudSpeechLang = langCode;
+}
+
+// ── Update speech rate ────────────────────────────────
+function readAloudUpdateRate(rate) {
+  readAloudRate = parseFloat(rate);
+}
+
+// ── Main render ───────────────────────────────────────
+function renderReadAloud() {
+  const mc = document.getElementById('main-content');
+  if (!mc) return;
+
+  const textValue = (document.getElementById('readaloud-textarea')?.value) || '';
+
+  const ocrOpts = OCR_LANGS.map(l =>
+    '<option value="' + l.code + '"' + (readAloudOcrLang === l.code ? ' selected' : '') + '>' + l.label + '</option>'
+  ).join('');
+  const ttsOpts = TTS_LANGS.map(l =>
+    '<option value="' + l.code + '"' + (readAloudSpeechLang === l.code ? ' selected' : '') + '>' + l.label + '</option>'
+  ).join('');
+
+  const playIcon = readAloudPlaying ? 'fa-pause' : 'fa-play';
+  const playLabel = readAloudPlaying ? '暂停' : '朗读';
+
+  mc.innerHTML =
+    '<div class="readaloud-container">' +
+    '  <div class="readaloud-header">' +
+    '    <h2><i class="fa-solid fa-book-open-reader"></i> 朗读</h2>' +
+    '    <span class="readaloud-subtitle">输入文字、拍照或上传图片，自动朗读</span>' +
+    '  </div>' +
+
+    // Text input area
+    '  <div class="readaloud-input-section">' +
+    '    <textarea id="readaloud-textarea" class="readaloud-textarea" ' +
+    '      placeholder="在这里输入或粘贴文字...&#10;也可以拍照或上传图片自动识别" ' +
+    '      oninput="this.style.height=\'auto\';this.style.height=Math.min(this.scrollHeight,300)+\'px\'"' +
+    '      rows="4">' + escHtml(textValue) + '</textarea>' +
+    '  </div>' +
+
+    // Toolbar: camera, upload, clear
+    '  <div class="readaloud-toolbar">' +
+    '    <button class="btn btn-outline btn-sm" id="btn-open-camera" onclick="readAloudStartCamera()">' +
+    '      <i class="fa-solid fa-camera"></i> 拍照' +
+    '    </button>' +
+    '    <label class="btn btn-outline btn-sm" style="cursor:pointer;">' +
+    '      <i class="fa-solid fa-image"></i> 上传图片' +
+    '      <input type="file" accept="image/*" onchange="readAloudHandleImage(this.files[0])" style="display:none;">' +
+    '    </label>' +
+    '    <button class="btn btn-ghost btn-sm" onclick="readAloudClear()">' +
+    '      <i class="fa-solid fa-eraser"></i> 清空' +
+    '    </button>' +
+    '  </div>' +
+
+    // Camera preview
+    '  <div id="readaloud-camera-preview" class="readaloud-camera-preview" style="display:none;"></div>' +
+
+    // OCR progress
+    '  <div id="ocr-progress-wrap" class="ocr-progress-wrap" style="display:none;">' +
+    '    <div class="ocr-progress-track">' +
+    '      <div id="ocr-progress-bar" class="ocr-progress-bar" style="width:0%;"></div>' +
+    '    </div>' +
+    '    <div id="ocr-status-text" class="ocr-status-text">准备中...</div>' +
+    '  </div>' +
+
+    // Language + speed selectors
+    '  <div class="readaloud-selectors">' +
+    '    <div class="readaloud-selector">' +
+    '      <label><i class="fa-solid fa-language"></i> 识别语言</label>' +
+    '      <select id="readaloud-ocr-lang" onchange="readAloudUpdateOcrLang(this.value)">' + ocrOpts + '</select>' +
+    '    </div>' +
+    '    <div class="readaloud-selector">' +
+    '      <label><i class="fa-solid fa-volume-high"></i> 朗读语言</label>' +
+    '      <select id="readaloud-tts-lang" onchange="readAloudUpdateTtsLang(this.value)">' + ttsOpts + '</select>' +
+    '    </div>' +
+    '    <div class="readaloud-selector">' +
+    '      <label><i class="fa-solid fa-gauge-high"></i> 语速</label>' +
+    '      <select id="readaloud-rate" onchange="readAloudUpdateRate(this.value)">' +
+    '        <option value="0.5"' + (readAloudRate === 0.5 ? ' selected' : '') + '>0.5x</option>' +
+    '        <option value="0.65"' + (readAloudRate === 0.65 ? ' selected' : '') + '>0.65x</option>' +
+    '        <option value="0.75"' + (readAloudRate === 0.75 ? ' selected' : '') + '>0.75x</option>' +
+    '        <option value="0.85"' + (readAloudRate === 0.85 ? ' selected' : '') + '>0.85x</option>' +
+    '        <option value="1.0"' + (readAloudRate === 1.0 ? ' selected' : '') + '>1.0x</option>' +
+    '        <option value="1.25"' + (readAloudRate === 1.25 ? ' selected' : '') + '>1.25x</option>' +
+    '        <option value="1.5"' + (readAloudRate === 1.5 ? ' selected' : '') + '>1.5x</option>' +
+    '      </select>' +
+    '    </div>' +
+    '  </div>' +
+
+    // Play controls
+    '  <div class="readaloud-controls">' +
+    '    <button class="btn btn-primary btn-readaloud-play" id="btn-readaloud-play" onclick="readAloudSpeak()">' +
+    '      <i class="fa-solid ' + playIcon + '"></i> ' + playLabel +
+    '    </button>' +
+    '    <button class="btn btn-ghost btn-sm" id="btn-readaloud-stop" onclick="readAloudStop()" style="' + (readAloudPlaying ? '' : 'display:none;') + '">' +
+    '      <i class="fa-solid fa-stop"></i> 停止' +
+    '    </button>' +
+    '  </div>' +
+    '</div>';
+
+  // Restore textarea height
+  setTimeout(() => {
+    const ta = document.getElementById('readaloud-textarea');
+    if (ta && ta.value) {
+      ta.style.height = 'auto';
+      ta.style.height = Math.min(ta.scrollHeight, 300) + 'px';
+    }
+  }, 50);
 }
 
 // ========================================================

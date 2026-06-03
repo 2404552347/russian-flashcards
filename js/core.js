@@ -45,6 +45,15 @@ let confettiParticles = [];
 let confettiRAF = null;
 let quizCombo = 0;
 let quizComboEl = null;
+let readAloudOcrLang = 'eng+rus';
+let readAloudSpeechLang = 'ru-RU';
+let readAloudRate = 0.85;
+let readAloudCameraOn = false;
+let readAloudStream = null;
+let readAloudTesseractWorker = null;
+let readAloudPlaying = false;
+let readAloudSentences = [];
+let readAloudSentenceIdx = 0;
 
 // ── Constants ──────────────────────────────────────────
 const ACCOUNTS_KEY = 'flashcards_accounts';
@@ -117,6 +126,10 @@ async function loginAccount(username, password) {
 
 function logoutAccount() {
   clearSession();
+  // Clean up readaloud
+  if (readAloudPlaying) { readAloudStop?.(); }
+  if (readAloudStream) { readAloudStream.getTracks().forEach(t => t.stop()); readAloudStream = null; readAloudCameraOn = false; }
+  if (readAloudTesseractWorker) { readAloudTesseractWorker.terminate?.().catch(() => {}); readAloudTesseractWorker = null; }
   userLanguages = []; WORDS = []; srsData = {}; activeLang = 'ru';
   activeFolderId = null; folders = [];
   flashcardIndex = 0; flashcardFilter = 'all'; flashcardPool = [];
@@ -313,7 +326,7 @@ function loadFullApp(username) {
     '<i class="fa-solid fa-spinner fa-spin"></i> 加载中...</div>';
   // Dynamically load the full app
   const script = document.createElement('script');
-  script.src = 'js/app.js?v=14';
+  script.src = 'js/app.js?v=16';
   script.onload = () => { _appLoaded = true; };
   script.onerror = () => {
     document.getElementById('main-content').innerHTML =

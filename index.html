@@ -83,11 +83,11 @@
 <script src="https://cdn.jsdelivr.net/npm/mammoth@1.6.0/mammoth.browser.min.js" defer></script>
 	<!-- Preload critical CSS — downloads start immediately, in parallel -->
 	<link rel="preload" as="style" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
-	<link rel="preload" as="style" href="css/style.css?v=13">
+	<link rel="preload" as="style" href="css/style.css?v=14">
 	<!-- Apply (preloaded resources hit cache, zero re-download) -->
 		<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css" media="print" onload="this.media='all'">
-	<link rel="stylesheet" href="css/style.css?v=13" media="print" onload="this.media='all'">
-		<noscript><link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css"><link rel="stylesheet" href="css/style.css?v=13"></noscript>
+	<link rel="stylesheet" href="css/style.css?v=14" media="print" onload="this.media='all'">
+		<noscript><link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css"><link rel="stylesheet" href="css/style.css?v=14"></noscript>
 </head>
 <body>
 
@@ -213,6 +213,9 @@
     </button>
     <button class="nav-item" id="nav-game" onclick="setMode('game')">
       <span class="nav-icon"><i class="fa-solid fa-puzzle-piece"></i></span>记忆游戏
+    </button>
+    <button class="nav-item" id="nav-readaloud" onclick="setMode('readaloud')">
+      <span class="nav-icon"><i class="fa-solid fa-book-open-reader"></i></span>朗读
     </button>
   </div>
 
@@ -395,7 +398,7 @@
 </div>
 
 	<script src="js/wordlists.js?v=7" defer></script>
-	<script src="js/core.js?v=6" defer></script>
+	<script src="js/core.js?v=8" defer></script>
 	<!-- js/app.js loaded lazily by core.js after successful login -->
 
 </body>
