@@ -4807,60 +4807,52 @@ function listenPrev() {
 }
 
 // ========================================================
-//  BACKGROUND AUDIO — keep alive when screen off / backgrounded
+//  BACKGROUND AUDIO — keep TTS alive when screen off / app switch
+//  Strategy: silent <audio> loop creates an OS-level audio session
+//  that prevents the browser from suspending speechSynthesis.
+//  No Wake Lock — screen can turn off freely.
 // ========================================================
-let _wakeLock = null;
-let _silentAudioCtx = null;
-let _silentGain = null;
+let _silentAudioEl = null;
 
-async function requestWakeLock() {
-  if ('wakeLock' in navigator && !_wakeLock) {
-    try {
-      _wakeLock = await navigator.wakeLock.request('screen');
-      _wakeLock.addEventListener('release', () => { _wakeLock = null; });
-    } catch(e) { /* not supported or permission denied */ }
-  }
-}
-
-async function releaseWakeLock() {
-  if (_wakeLock) {
-    try { await _wakeLock.release(); } catch(e) {}
-    _wakeLock = null;
-  }
+// Tiny 0.5s silent WAV (8kHz 8-bit mono, ~4KB) as blob URL
+function _createSilentWavBlob() {
+  const sampleRate = 8000, duration = 0.5;
+  const numSamples = Math.floor(sampleRate * duration);
+  const dataSize = numSamples;
+  const buf = new ArrayBuffer(44 + dataSize);
+  const v = new DataView(buf);
+  const w = (o, s) => { for (let i = 0; i < s.length; i++) v.setUint8(o + i, s.charCodeAt(i)); };
+  w(0, 'RIFF'); v.setUint32(4, 36 + dataSize, true); w(8, 'WAVE');
+  w(12, 'fmt '); v.setUint32(16, 16, true); v.setUint16(20, 1, true); v.setUint16(22, 1, true);
+  v.setUint32(24, sampleRate, true); v.setUint32(28, sampleRate, true);
+  v.setUint16(32, 1, true); v.setUint16(34, 8, true);
+  w(36, 'data'); v.setUint32(40, dataSize, true);
+  for (let i = 0; i < dataSize; i++) v.setUint8(44 + i, 128);
+  return new Blob([buf], { type: 'audio/wav' });
 }
 
 function startSilentAudio() {
-  if (_silentAudioCtx) return;
+  if (_silentAudioEl) return;
   try {
-    _silentAudioCtx = new (window.AudioContext || window.webkitAudioContext)();
-    // Silent oscillator loop — tricks OS into treating page as "playing audio"
-    // so JS engine stays alive when app is backgrounded
-    const osc = _silentAudioCtx.createOscillator();
-    _silentGain = _silentAudioCtx.createGain();
-    _silentGain.gain.value = 0.0001; // near-zero volume but still "active"
-    osc.connect(_silentGain);
-    _silentGain.connect(_silentAudioCtx.destination);
-    osc.frequency.value = 1;
-    osc.start();
-    // Resume if suspended (iOS requires user gesture, but after that it works)
-    if (_silentAudioCtx.state === 'suspended') _silentAudioCtx.resume();
+    _silentAudioEl = new Audio();
+    _silentAudioEl.src = URL.createObjectURL(_createSilentWavBlob());
+    _silentAudioEl.loop = true;
+    _silentAudioEl.volume = 0.001;
+    _silentAudioEl.play().catch(() => {});
   } catch(e) { /* not available */ }
 }
 
 function stopSilentAudio() {
-  if (_silentAudioCtx) {
-    _silentAudioCtx.close().catch(() => {});
-    _silentAudioCtx = null;
-    _silentGain = null;
+  if (_silentAudioEl) {
+    try { _silentAudioEl.pause(); _silentAudioEl.src = ''; _silentAudioEl.load(); } catch(e) {}
+    _silentAudioEl = null;
   }
 }
 
 function updateMediaSession(title, artist) {
   if (!('mediaSession' in navigator)) return;
   try {
-    navigator.mediaSession.metadata = new MediaMetadata({
-      title: title, artist: artist,
-    });
+    navigator.mediaSession.metadata = new MediaMetadata({ title, artist });
     navigator.mediaSession.setActionHandler('play', () => {
       if (currentMode === 'listen' && !listenPlaying) startListening();
       else if (currentMode === 'readaloud' && !readAloudPlaying) readAloudSpeak();
@@ -4888,7 +4880,6 @@ function clearMediaSession() {
 const _origStartListening = startListening;
 startListening = function() {
   _origStartListening();
-  requestWakeLock();
   startSilentAudio();
   const w = WORDS[listenIndex];
   const folderName = folders.find(f => f.id === activeFolderId)?.name || '';
@@ -4898,7 +4889,6 @@ startListening = function() {
 const _origStopListening = stopListening;
 stopListening = function() {
   _origStopListening();
-  releaseWakeLock();
   stopSilentAudio();
   clearMediaSession();
 };
@@ -5323,7 +5313,6 @@ function readAloudSpeak() {
   readAloudSentenceIdx = 0;
   readAloudPlaying = true;
   updateReadAloudPlayBtn(true);
-  requestWakeLock();
   startSilentAudio();
   updateMediaSession('朗读播放', text.substring(0, 50));
   readAloudSpeakNext();
@@ -5391,7 +5380,6 @@ function readAloudStop() {
   readAloudSentenceIdx = 0;
   if ('speechSynthesis' in window) window.speechSynthesis.cancel();
   updateReadAloudPlayBtn(false);
-  releaseWakeLock();
   stopSilentAudio();
   clearMediaSession();
 }
