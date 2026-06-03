@@ -4830,6 +4830,137 @@ function loadTesseract() {
   return _tesseractPromise;
 }
 
+// ── Image preprocessing for better OCR accuracy ──────────
+function preprocessImage(source, sourceType) {
+  const canvas = document.createElement('canvas');
+  let srcWidth, srcHeight;
+
+  if (sourceType === 'video') {
+    srcWidth = source.videoWidth || 640;
+    srcHeight = source.videoHeight || 480;
+  } else {
+    srcWidth = source.naturalWidth || source.width || 640;
+    srcHeight = source.naturalHeight || source.height || 480;
+  }
+
+  // Scale up small images for better OCR (aim for ~300dpi equivalent)
+  const minDim = Math.min(srcWidth, srcHeight);
+  let scale = 2.0; // default 2x upscale
+  if (minDim > 1200) scale = 1.0;
+  else if (minDim > 800) scale = 1.5;
+
+  canvas.width = Math.round(srcWidth * scale);
+  canvas.height = Math.round(srcHeight * scale);
+  const ctx = canvas.getContext('2d');
+
+  // Enable high-quality image smoothing
+  ctx.imageSmoothingEnabled = true;
+  ctx.imageSmoothingQuality = 'high';
+  ctx.drawImage(source, 0, 0, canvas.width, canvas.height);
+
+  // Get image data for processing
+  const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+  const data = imageData.data;
+
+  // 1. Convert to grayscale + compute histogram
+  const histogram = new Array(256).fill(0);
+  for (let i = 0; i < data.length; i += 4) {
+    const gray = Math.round(data[i] * 0.299 + data[i + 1] * 0.587 + data[i + 2] * 0.114);
+    data[i] = data[i + 1] = data[i + 2] = gray;
+    histogram[gray]++;
+  }
+
+  // 2. Otsu threshold to binarize (separates text from background)
+  const total = canvas.width * canvas.height;
+  let sum = 0;
+  for (let i = 0; i < 256; i++) sum += i * histogram[i];
+  let sumB = 0, wB = 0, maxVariance = 0, threshold = 128;
+  for (let t = 0; t < 256; t++) {
+    wB += histogram[t];
+    if (wB === 0) continue;
+    const wF = total - wB;
+    if (wF === 0) break;
+    sumB += t * histogram[t];
+    const mB = sumB / wB;
+    const mF = (sum - sumB) / wF;
+    const variance = wB * wF * (mB - mF) * (mB - mF);
+    if (variance > maxVariance) { maxVariance = variance; threshold = t; }
+  }
+
+  // 3. Apply threshold + mild denoise
+  for (let i = 0; i < data.length; i += 4) {
+    const val = data[i] > threshold ? 255 : 0;
+    data[i] = data[i + 1] = data[i + 2] = val;
+  }
+
+  // 4. Simple salt-and-pepper denoise (3x3 median-like)
+  const clean = new Uint8ClampedArray(data);
+  for (let y = 1; y < canvas.height - 1; y++) {
+    for (let x = 1; x < canvas.width - 1; x++) {
+      const idx = (y * canvas.width + x) * 4;
+      let whiteCount = 0, blackCount = 0;
+      for (let dy = -1; dy <= 1; dy++) {
+        for (let dx = -1; dx <= 1; dx++) {
+          const nIdx = ((y + dy) * canvas.width + (x + dx)) * 4;
+          if (data[nIdx] > 128) whiteCount++; else blackCount++;
+        }
+      }
+      // If center pixel differs from all 8 neighbors, flip it
+      const centerVal = data[idx];
+      if (centerVal > 128 && blackCount >= 7) { clean[idx] = clean[idx + 1] = clean[idx + 2] = 0; }
+      else if (centerVal <= 128 && whiteCount >= 7) { clean[idx] = clean[idx + 1] = clean[idx + 2] = 255; }
+    }
+  }
+  ctx.putImageData(new ImageData(clean, canvas.width, canvas.height), 0, 0);
+
+  return canvas;
+}
+
+// ── Text post-processing: filter OCR garbage ─────────────
+function cleanOcrText(text, lang) {
+  if (!text) return '';
+
+  // Split into lines and clean each
+  const lines = text.split('\n');
+  const cleaned = [];
+
+  for (const line of lines) {
+    let s = line.trim();
+    if (!s) continue;
+
+    // Remove lone symbols/artifacts at line start
+    s = s.replace(/^[^\w一-鿿Ѐ-ӿ぀-ゟ゠-ヿ가-힯]+/, '');
+    // Remove trailing garbage
+    s = s.replace(/[^\w一-鿿Ѐ-ӿ぀-ゟ゠-ヿ가-힯.,!?;:)\]}」』】》"»'%-]+$/, '');
+
+    // Count meaningful characters
+    const alphaCount = (s.match(/[a-zA-ZЀ-ӿ]/g) || []).length;
+    const cjkCount = (s.match(/[一-鿿぀-ゟ゠-ヿ가-힯]/g) || []).length;
+    const digitCount = (s.match(/[0-9]/g) || []).length;
+    const meaningful = alphaCount + cjkCount + digitCount;
+
+    // Filter: line must have at least 2 meaningful chars
+    if (meaningful < 2) continue;
+
+    // Filter: garbage lines (more than 60% non-meaningful characters)
+    const totalLen = s.length;
+    if (totalLen > 0 && meaningful / totalLen < 0.3) continue;
+
+    // Filter: lines that are just random symbol sequences
+    if (/^[^\w一-鿿Ѐ-ӿ぀-ゟ゠-ヿ가-힯]{3,}$/.test(s)) continue;
+
+    // Merge broken CJK/Cyrillic words split by spaces (common OCR artifact)
+    if (/([Ѐ-ӿ])\s+([Ѐ-ӿ])/g.test(s)) {
+      // For Cyrillic, only merge single chars separated by single spaces
+      s = s.replace(/(?<=[Ѐ-ӿ])\s+(?=[Ѐ-ӿ])/g, '');
+    }
+
+    cleaned.push(s);
+  }
+
+  return cleaned.join('\n');
+}
+
 // ── Init Tesseract worker (lazy, reused) ──────────────
 async function readAloudInitWorker(lang) {
   // Lazy-load Tesseract.js CDN on first use
@@ -4865,6 +4996,8 @@ async function readAloudInitWorker(lang) {
           }
         }
       });
+      // Set PSM 6: assume uniform block of text (best for camera captures)
+      await readAloudTesseractWorker.setParameters({ tessedit_pageseg_mode: 6 });
     } catch(e) {
       console.error('Tesseract init error:', e);
       readAloudTesseractWorker = null;
@@ -4885,7 +5018,7 @@ async function readAloudOcr(imageSource, sourceType) {
 
   if (progressWrap) progressWrap.style.display = 'block';
   if (progressBar) progressBar.style.width = '0%';
-  if (statusText) statusText.textContent = '准备 OCR...';
+  if (statusText) statusText.textContent = '预处理图片...';
 
   const worker = await readAloudInitWorker(readAloudOcrLang);
   if (!worker) {
@@ -4894,26 +5027,30 @@ async function readAloudOcr(imageSource, sourceType) {
   }
 
   try {
-    let result;
-    if (sourceType === 'canvas') {
-      result = await worker.recognize(imageSource);
-    } else if (sourceType === 'image') {
-      result = await worker.recognize(imageSource);
-    } else if (sourceType === 'url') {
-      result = await worker.recognize(imageSource);
-    }
-    const text = (result.data.text || '').trim();
-    if (text) {
+    // Preprocess image: grayscale + threshold + denoise + scale
+    if (statusText) statusText.textContent = '识别文字中...';
+    const preprocessed = preprocessImage(imageSource, sourceType);
+    const result = await worker.recognize(preprocessed);
+
+    // Post-process: filter garbage
+    const rawText = (result.data.text || '').trim();
+    const cleanText = cleanOcrText(rawText, readAloudOcrLang);
+
+    if (cleanText) {
       if (resultArea) {
         const existing = resultArea.value.trim();
-        resultArea.value = existing ? existing + '\n' + text : text;
+        resultArea.value = existing ? existing + '\n' + cleanText : cleanText;
       }
       if (statusText) statusText.textContent = '识别完成！';
       if (progressBar) progressBar.style.width = '100%';
-      showToast('已识别 ' + text.length + ' 个字符', 'success');
+      const removed = rawText.length - cleanText.length;
+      const msg = removed > 0
+        ? '已识别 ' + cleanText.length + ' 字符（过滤 ' + removed + ' 无用字符）'
+        : '已识别 ' + cleanText.length + ' 个字符';
+      showToast(msg, 'success');
     } else {
-      if (statusText) statusText.textContent = '未识别到文字，请重试';
-      showToast('未识别到文字，尝试调整角度或光线', 'warning');
+      if (statusText) statusText.textContent = '未识别到有效文字，请调整光线或角度重试';
+      showToast('未识别到有效文字，请调整角度或光线', 'warning');
     }
   } catch(e) {
     console.error('OCR error:', e);
@@ -4992,25 +5129,27 @@ function readAloudCapture() {
   const video = document.getElementById('readaloud-video');
   if (!video) return;
 
-  const canvas = document.createElement('canvas');
-  canvas.width = video.videoWidth || 640;
-  canvas.height = video.videoHeight || 480;
-  const ctx = canvas.getContext('2d');
-  ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+  // Draw a thumbnail preview
+  const thumbCanvas = document.createElement('canvas');
+  thumbCanvas.width = video.videoWidth || 640;
+  thumbCanvas.height = video.videoHeight || 480;
+  const thumbCtx = thumbCanvas.getContext('2d');
+  thumbCtx.drawImage(video, 0, 0, thumbCanvas.width, thumbCanvas.height);
 
   // Show thumbnail
   const preview = document.getElementById('readaloud-camera-preview');
   if (preview) {
     preview.innerHTML =
       '<div style="text-align:center;padding:8px;">' +
-      '<img src="' + canvas.toDataURL('image/jpeg', 0.85) + '" style="max-width:100%;max-height:200px;border-radius:8px;" alt="capture">' +
+      '<img src="' + thumbCanvas.toDataURL('image/jpeg', 0.85) + '" style="max-width:100%;max-height:200px;border-radius:8px;" alt="capture">' +
       '<div style="margin-top:8px;font-size:13px;color:var(--text-secondary);">已拍照，正在识别...</div>' +
       '<button class="btn btn-ghost btn-sm" onclick="readAloudStartCamera()" style="margin-top:8px;"><i class="fa-solid fa-camera"></i> 重新拍照</button>' +
       '</div>';
   }
 
+  // Pass video for full-quality preprocessing
   readAloudStopCamera();
-  readAloudOcr(canvas, 'canvas');
+  readAloudOcr(video, 'video');
 }
 
 // ── Image upload ──────────────────────────────────────
