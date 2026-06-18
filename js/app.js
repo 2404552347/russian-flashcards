@@ -671,8 +671,8 @@ function enrichWordFromMap(w) {
             const revealEl = document.getElementById('answer-reveal');
             const stageEl = document.getElementById('card-stage');
             if (revealEl && stageEl && !stageEl.classList.contains('revealed')) {
-              // Card is showing, re-render word info
-              updateWordInfoHtml(revealEl, w);
+              // Card is showing, re-render word info (keep collapsible)
+              updateWordInfoHtmlCollapsed(revealEl, w);
             }
           }
         }
@@ -2765,11 +2765,8 @@ function renderSessionCard() {
       <div class="russian-word">${escHtml(w.ru)}</div>
       <div class="russian-tr">${escHtml(w.tr||'')}</div>
 
-      <div class="answer-reveal answer-hidden" id="answer-reveal">
-        ${renderWordInfoHtml(w)}
-      </div>
+      <div class="answer-reveal answer-hidden" id="answer-reveal"></div>
     </div>
-
     <div class="stage-actions" id="stage-actions">
       <button class="stage-btn stage-btn-dontknow" onclick="handleStage1('dontknow')">不认识</button>
       <button class="stage-btn stage-btn-unsure" onclick="handleStage1('unsure')">模糊</button>
@@ -2785,6 +2782,12 @@ function renderSessionCard() {
       <button class="btn btn-ghost btn-sm" onclick="finishSessionEarly()" style="font-size:11px;color:var(--text-muted);">结束本次复习</button>
     </div>
   </div>`;
+
+  // Fill answer content via collapsible helper (after DOM ready)
+  setTimeout(() => {
+    const el = document.getElementById('answer-reveal');
+    if (el) updateWordInfoHtmlCollapsed(el, w);
+  }, 0);
 
   // Auto-fetch example
   if (!w.example && !w._exampleFetching) {
