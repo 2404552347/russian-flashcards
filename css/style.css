@@ -257,7 +257,7 @@
   .quiz-type-bar button.active { background: var(--card); color: var(--text); box-shadow: var(--shadow-sm); }
 
   /* ── MaiMai-Style Flashcard ─── */
-  .flashcard-container { display: flex; flex-direction: column; gap: var(--space-sm); contain: layout style; }
+  .flashcard-container { display: flex; flex-direction: column; gap: var(--space-sm); contain: layout style; overscroll-behavior: none; }
 
   /* ── Top bar (filter + back) ── */
   .fc-top-bar { display: flex; align-items: center; justify-content: space-between; position: relative; }
@@ -306,6 +306,9 @@
     border: 1px solid var(--border-light);
     contain: layout style paint;
     transition: all var(--transition-expand);
+    touch-action: none;
+    user-select: none;
+    -webkit-user-select: none;
   }
   /* Front content — fixed at top, no shrink */
   .card-stage .russian-word,
@@ -319,6 +322,7 @@
     scrollbar-width: thin;
     scrollbar-color: var(--border) transparent;
     padding-right: 2px;
+    touch-action: pan-y;
   }
   /* Subtle top shadow for depth */
   .card-stage::after {
