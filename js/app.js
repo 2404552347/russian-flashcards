@@ -619,12 +619,10 @@ async function loadWordInfoDb() {
   if (_wordInfoDb) return _wordInfoDb;
   if (_wordInfoDbPromise) return _wordInfoDbPromise;
   _wordInfoDbLoading = true;
-  _wordInfoDbPromise = fetch('js/wordinfo-data.js?v=1')
-    .then(r => r.text())
-    .then(t => {
-      // Extract JSON from the JS file (const WORD_INFO_DB = {...};)
-      const json = t.slice(t.indexOf('{'), t.lastIndexOf('}') + 1);
-      _wordInfoDb = JSON.parse(json);
+  _wordInfoDbPromise = fetch('js/wordinfo-data.json?v=1')
+    .then(r => r.json())
+    .then(data => {
+      _wordInfoDb = data;
       _wordInfoDbLoading = false;
       return _wordInfoDb;
     })

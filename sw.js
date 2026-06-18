@@ -5,7 +5,7 @@ const ASSETS = [
   'index.html',
   'js/core.js',
   'js/app.js',
-  'js/wordinfo-data.js',
+  'js/wordinfo-data.json',
   'css/style.css',
   'manifest.json',
   'icon-192.png',
