@@ -1,10 +1,11 @@
 // Service Worker for 多语言单词闪卡 PWA
-const CACHE_NAME = 'flashcards-v7';
+const CACHE_NAME = 'flashcards-v8';
 const ASSETS = [
   '.',
   'index.html',
   'js/core.js',
   'js/app.js',
+  'js/wordinfo-data.js',
   'css/style.css',
   'manifest.json',
   'icon-192.png',

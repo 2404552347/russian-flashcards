@@ -613,19 +613,40 @@ const WORD_INFO_MAP = {
 
 function enrichWordFromMap(w) {
   if (!w || w._enriched) return;
-  // Look up by ru field (with stress marks stripped for matching)
-  const clean = w.ru.replace(/[́̀]/g, '');
-  const info = WORD_INFO_MAP[clean] || WORD_INFO_MAP[w.ru];
-  if (!info) return;
-  // Auto-fill all fields from the map (never overwrite user-edited values)
-  if (info.pos && !w.pos) w.pos = info.pos;
-  if (info.stress && !w.stress) w.stress = info.stress;
-  if (info.gender && !w.gender) w.gender = info.gender;
-  if (info.aspect && !w.aspect) w.aspect = info.aspect;
-  if (info.pairWord && !w.pairWord) w.pairWord = info.pairWord;
-  if (info.level && !w.level) w.level = info.level;
-  if (info.mnemonic && !w.mnemonic) w.mnemonic = info.mnemonic;
-  if (info.example && !w.example) { w.example = info.example; w.exampleZh = info.exampleZh || ''; }
+
+  // Strip stress marks for matching
+  const clean = w.ru.replace(/[́̀]/g, '').toLowerCase();
+
+  // 1. Check curated WORD_INFO_MAP (has mnemonics, examples, levels)
+  const curated = WORD_INFO_MAP[clean] || WORD_INFO_MAP[w.ru];
+  if (curated) {
+    if (curated.pos && !w.pos) w.pos = curated.pos;
+    if (curated.stress && !w.stress) w.stress = curated.stress;
+    if (curated.gender && !w.gender) w.gender = curated.gender;
+    if (curated.aspect && !w.aspect) w.aspect = curated.aspect;
+    if (curated.pairWord && !w.pairWord) w.pairWord = curated.pairWord;
+    if (curated.level && !w.level) w.level = curated.level;
+    if (curated.mnemonic && !w.mnemonic) w.mnemonic = curated.mnemonic;
+    if (curated.example && !w.example) { w.example = curated.example; w.exampleZh = curated.exampleZh || ''; }
+  }
+
+  // 2. Query OpenRussian DB for grammatical data (covers ALL ~58K words)
+  if (typeof WORD_INFO_DB !== 'undefined') {
+    const dbInfo = WORD_INFO_DB[clean] || WORD_INFO_DB[w.ru.toLowerCase()];
+    if (dbInfo) {
+      // POS from DB (if not already set by curated map or user)
+      if (dbInfo.p && !w.pos) w.pos = dbInfo.p;
+      // Stress/accented form
+      if (dbInfo.s && !w.stress) w.stress = dbInfo.s;
+      // Gender (convert m/f/n codes)
+      if (dbInfo.g && !w.gender) w.gender = dbInfo.g;
+      // Aspect
+      if (dbInfo.a && !w.aspect) w.aspect = dbInfo.a;
+      // Pair word (aspect pair)
+      if (dbInfo.w && !w.pairWord) w.pairWord = dbInfo.w;
+    }
+  }
+
   w._enriched = true;
 }
 
