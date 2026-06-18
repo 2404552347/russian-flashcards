@@ -2405,8 +2405,41 @@ function switchLanguage(lang) {
 function renderAll() {
   renderLangTabs();
   renderFolderTabs();
+  updateDeckSummary();
   renderMain();
 }
+
+// ── Collapsible deck bar ────────────────────────────────
+function toggleDeckBar() {
+  const langWrap = document.querySelector('.lang-tabs-wrap');
+  const folderWrap = document.getElementById('folder-tabs-wrap');
+  const bar = document.getElementById('deck-summary-bar');
+  const collapsed = langWrap && langWrap.classList.contains('collapsed');
+  if (collapsed) {
+    langWrap.classList.remove('collapsed');
+    if (folderWrap) folderWrap.classList.remove('collapsed');
+    if (bar) bar.classList.add('open');
+  } else {
+    langWrap.classList.add('collapsed');
+    if (folderWrap) folderWrap.classList.add('collapsed');
+    if (bar) bar.classList.remove('open');
+  }
+}
+
+function updateDeckSummary() {
+  const el = document.getElementById('deck-summary-text');
+  if (!el) return;
+  const lang = userLanguages.find(l => l.lang === activeLang);
+  const folder = folders.find(f => f.id === activeFolderId);
+  el.textContent = (lang ? (lang.flag || '') + ' ' + lang.name : activeLang) + ' · ' + (folder ? folder.name : '全部');
+}
+
+// Also update summary when switching language/folder
+const _origSwitchFolder = switchFolder;
+switchFolder = function(id) {
+  _origSwitchFolder(id);
+  setTimeout(updateDeckSummary, 50);
+};
 
 // ========================================================
 //  NAVIGATION

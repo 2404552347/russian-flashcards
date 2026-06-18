@@ -219,6 +219,19 @@
   }
   .lang-tab-add:hover { border-color: var(--primary); color: var(--primary); }
 
+  /* Deck summary bar — collapses lang + folder rows */
+  .deck-summary-bar {
+    display: flex; align-items: center; justify-content: center; gap: 6px;
+    padding: 5px 16px; cursor: pointer; user-select: none;
+    font-size: 13px; font-weight: 600; color: var(--text);
+    transition: all var(--transition-fast); margin-top: 6px;
+    border-radius: var(--radius-full);
+  }
+  .deck-summary-bar:hover { background: var(--border-light); }
+  .deck-summary-chevron { font-size: 10px; color: var(--text-muted); transition: transform var(--transition-fast); }
+  .deck-summary-bar.open .deck-summary-chevron { transform: rotate(180deg); }
+  .lang-tabs-wrap.collapsed, .folder-tabs-wrap.collapsed { display: none; }
+
   /* Stats Bar */
   .stats {
     width: 100%; max-width: 600px; padding: var(--space-sm) var(--space-lg);

@@ -83,11 +83,11 @@
 <script src="https://cdn.jsdelivr.net/npm/mammoth@1.6.0/mammoth.browser.min.js" defer></script>
 	<!-- Preload critical CSS — downloads start immediately, in parallel -->
 	<link rel="preload" as="style" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
-	<link rel="preload" as="style" href="css/style.css?v=21">
+	<link rel="preload" as="style" href="css/style.css?v=22">
 	<!-- Apply (preloaded resources hit cache, zero re-download) -->
 		<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css" media="print" onload="this.media='all'">
-	<link rel="stylesheet" href="css/style.css?v=21" media="print" onload="this.media='all'">
-		<noscript><link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css"><link rel="stylesheet" href="css/style.css?v=21"></noscript>
+	<link rel="stylesheet" href="css/style.css?v=22" media="print" onload="this.media='all'">
+		<noscript><link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css"><link rel="stylesheet" href="css/style.css?v=22"></noscript>
 </head>
 <body>
 
@@ -160,13 +160,18 @@
         <button class="btn-icon" onclick="openSettings()" title="设置"><i class="fa-solid fa-gear"></i></button>
       </div>
     </div>
-    <div class="lang-tabs-wrap">
+    <div class="lang-tabs-wrap collapsed">
       <div class="lang-tabs" id="lang-tabs"></div>
       <button class="lang-tab-add" onclick="openAddLangModal()" title="添加语言">+</button>
     </div>
+    <!-- Collapsible toggle for lang/folder rows -->
+    <div class="deck-summary-bar" id="deck-summary-bar" onclick="toggleDeckBar()">
+      <span id="deck-summary-text">俄语 · 基础词汇</span>
+      <span class="deck-summary-chevron"><i class="fa-solid fa-chevron-down"></i></span>
+    </div>
   </header>
 
-  <div class="folder-tabs-wrap" id="folder-tabs-wrap">
+  <div class="folder-tabs-wrap collapsed" id="folder-tabs-wrap">
     <div class="folder-tabs" id="folder-tabs"></div>
     <button class="folder-tab-add" onclick="createFolderPrompt()" title="添加文件夹">+</button>
   </div>
@@ -431,7 +436,7 @@
 </div>
 
 	<script src="js/wordlists.js?v=7" defer></script>
-	<script src="js/core.js?v=20" defer></script>
+	<script src="js/core.js?v=21" defer></script>
 	<!-- js/app.js loaded lazily by core.js after successful login -->
 
 </body>
