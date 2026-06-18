@@ -1,5 +1,5 @@
 // Service Worker for 多语言单词闪卡 PWA
-const CACHE_NAME = 'flashcards-v8';
+const CACHE_NAME = 'flashcards-v9';
 const ASSETS = [
   '.',
   'index.html',
