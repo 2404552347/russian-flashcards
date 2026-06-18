@@ -2991,6 +2991,91 @@ function updateWordInfoHtml(el, w) {
   el.innerHTML = html;
 }
 
+// ── Collapsible word info (summary + expand) ─────────────
+function updateWordInfoHtmlCollapsed(el, w) {
+  const hasExtra = w.stress || w.gender || w.aspect || w.pairWord || w.mnemonic || (w.pos && (w.stress || w.gender || w.aspect || w.pairWord));
+  const summary = [w.pos, w.level, w.gender, w.aspect].filter(Boolean).join(' · ');
+
+  let html = '<div class="chinese-def">' + escHtml(w.zh) + '</div>';
+  if (summary) {
+    html += '<div class="word-info-summary" onclick="event.stopPropagation();this.nextElementSibling.classList.toggle(\'expanded\');this.classList.toggle(\'open\');">';
+    html += '<span>' + escHtml(summary) + '</span>';
+    html += '<span class="word-info-chevron"><i class="fa-solid fa-chevron-down"></i></span>';
+    html += '</div>';
+    html += '<div class="word-info-expandable">';
+    // Full info card (without chinese-def and word-pos — already shown above)
+    const infoRows = [
+      ['词性', w.pos],
+      ['体', w.aspect],
+      ['重音', w.stress],
+      ['性别', w.gender],
+      ['等级', w.level],
+      ['对应体', w.pairWord],
+    ].filter(r => r[1]);
+    if (infoRows.length > 0) {
+      html += '<div class="word-info-card">';
+      for (const [label, value] of infoRows) {
+        html += '<div class="word-info-row"><span class="word-info-label">' + label + '</span><span class="word-info-value">' + escHtml(value) + '</span></div>';
+      }
+      html += '</div>';
+    }
+    // Example
+    html += '<div class="word-example" id="word-example-' + w.id + '">';
+    if (w.example) {
+      html += '<div class="example-text">' + escHtml(w.example) + '</div>';
+      if (w.exampleZh) html += '<div class="example-zh">' + escHtml(toSimplified(w.exampleZh)) + '</div>';
+      html += '<button class="btn-speak-example" onclick="event.stopPropagation();speakWord(\'' + escHtml(w.example).replace(/'/g,"\\'") + '\')" style="margin-top:4px;"><i class="fa-solid fa-volume-high"></i> 朗读</button>';
+    } else {
+      html += '<button class="btn-generate-example" id="btn-gen-' + w.id + '" onclick="event.stopPropagation();fetchExample(\'' + w.id + '\')" style="margin-top:4px;"><i class="fa-solid fa-robot"></i> 生成例句</button>';
+    }
+    html += '</div>';
+    // Mnemonic
+    if (w.mnemonic) {
+      html += '<div class="word-info-card word-mnemonic-card"><div class="word-mnemonic-text">' + escHtml(w.mnemonic) + '</div></div>';
+    }
+    html += '</div>'; // .word-info-expandable
+  } else {
+    // No extra info — just show example
+    html += '<div class="word-example" id="word-example-' + w.id + '" style="margin-top:8px;">';
+    if (w.example) {
+      html += '<div class="example-text">' + escHtml(w.example) + '</div>';
+      if (w.exampleZh) html += '<div class="example-zh">' + escHtml(toSimplified(w.exampleZh)) + '</div>';
+      html += '<button class="btn-speak-example" onclick="event.stopPropagation();speakWord(\'' + escHtml(w.example).replace(/'/g,"\\'") + '\')" style="margin-top:4px;"><i class="fa-solid fa-volume-high"></i> 朗读</button>';
+    } else {
+      html += '<button class="btn-generate-example" id="btn-gen-' + w.id + '" onclick="event.stopPropagation();fetchExample(\'' + w.id + '\')" style="margin-top:4px;"><i class="fa-solid fa-robot"></i> 生成例句</button>';
+    }
+    html += '</div>';
+  }
+  el.innerHTML = html;
+}
+
+// ── Filter ───────────────────────────────────────────────
+function filterLabelText(f) {
+  const labels = { all: '全部单词', due: '待复习', learning: '学习中', new: '新词', mastered: '已掌握', starred: '收藏' };
+  const icons = { all: '', due: '⏳ ', learning: '📅 ', new: '✏️ ', mastered: '✅ ', starred: '⭐ ' };
+  const counts = { all: flashcardPool.length, due: countByCategory('due'), learning: countByCategory('learning'), new: countByCategory('new'), mastered: countByCategory('mastered'), starred: starredCount() };
+  return (icons[f] || '') + (labels[f] || f) + ' · ' + (counts[f] || 0) + '词';
+}
+
+function toggleFilterMenu() {
+  const menu = document.getElementById('filter-popup');
+  if (!menu) return;
+  const show = !menu.classList.contains('show');
+  // Close more menu if open
+  closeMoreMenu();
+  if (show) {
+    menu.classList.add('show');
+    setTimeout(() => document.addEventListener('click', closeFilterMenu, { once: true }), 50);
+  } else {
+    menu.classList.remove('show');
+  }
+}
+
+function closeFilterMenu() {
+  const menu = document.getElementById('filter-popup');
+  if (menu) menu.classList.remove('show');
+}
+
 function renderFlashcard() {
   if (WORDS.length === 0) {
     _fcCache = null;
@@ -3032,29 +3117,42 @@ function renderFlashcard() {
     _fcCache.starBtn.setAttribute('onclick', "event.stopPropagation();toggleStar('" + w.id + "');renderStarBtn()");
     _fcCache.speakBtn.setAttribute('onclick', "event.stopPropagation();speakWord('" + w.ru.replace(/'/g,"\\'") + "')");
     _fcCache.actionsEl.innerHTML = '<button class="stage-btn stage-btn-dontknow" onclick="handleStage1(\'dontknow\')">不认识</button><button class="stage-btn stage-btn-unsure" onclick="handleStage1(\'unsure\')">模糊</button><button class="stage-btn stage-btn-know" onclick="handleStage1(\'know\')">认识</button>';
-    updateWordInfoHtml(_fcCache.revealEl, w);
+    _fcCache.filterLabel.textContent = filterLabelText(flashcardFilter);
+    _fcCache.progressEl.innerHTML = (flashcardIndex + 1) + ' / ' + flashcardPool.length + ' · <span class="card-srs-badge ' + badge + '">' + label + '</span>';
+    updateWordInfoHtmlCollapsed(_fcCache.revealEl, w);
     if (!w.example && !w._exampleFetching) { w._exampleFetching = true; fetchExample(w.id); }
     return;
   }
 
   // ── Slow path: full rebuild (first render or filter/pool changed) ──
   _fcCache = null;
+
+  const filterLabel = filterLabelText(flashcardFilter);
+  const filterOpts = ['all','due','learning','new','mastered','starred'].map(f => {
+    const names = {all:'全部',due:'待复习',learning:'学习中',new:'新词',mastered:'已掌握',starred:'收藏'};
+    const icons = {all:'',due:'⏳',learning:'📅',new:'✏️',mastered:'✅',starred:'⭐'};
+    return '<button onclick="event.stopPropagation();setFlashcardFilter(\'' + f + '\');closeFilterMenu()" class="' + (flashcardFilter===f?'active':'') + '">' + icons[f] + ' ' + names[f] + '</button>';
+  }).join('');
+
   document.getElementById('main-content').innerHTML = `<div class="flashcard-container card-enter">
-    <button class="btn-back-to-session" onclick="goBackToSessionStart()"><i class="fa-solid fa-arrow-left"></i> 返回今日复习</button>
-    <div class="filter-bar">${['all','due','learning','new','mastered','starred'].map(f =>
-      `<button onclick="setFlashcardFilter('${f}')" class="${flashcardFilter===f?'active':''}">${f==='all'?'全部':f==='due'?'<i class="fa-solid fa-hourglass-half"></i>'+countByCategory('due'):f==='learning'?'<i class="fa-solid fa-calendar"></i>'+countByCategory('learning'):f==='new'?'<i class="fa-solid fa-pen-to-square"></i>'+countByCategory('new'):f==='mastered'?'<i class="fa-solid fa-circle-check"></i>'+countByCategory('mastered'):'<i class="fa-solid fa-star"></i>'+starredCount()}</button>`
-    ).join('')}</div>
+    <div class="fc-top-bar">
+      <span class="fc-filter-label" id="fc-filter-label" onclick="event.stopPropagation();toggleFilterMenu()">${filterLabel} <i class="fa-solid fa-chevron-down"></i></span>
+      <div class="filter-popup" id="filter-popup">${filterOpts}</div>
+      <span class="fc-back-session" onclick="goBackToSessionStart()" style="display:none;"><i class="fa-solid fa-arrow-left"></i></span>
+    </div>
     <div class="word-progress" id="fc-progress">${flashcardIndex+1} / ${flashcardPool.length} · <span class="card-srs-badge ${badge}">${label}</span></div>
 
     <div class="card-stage" id="card-stage">
       <button class="star-btn-card ${starredClass}" id="star-btn" onclick="event.stopPropagation();toggleStar('${w.id}');renderStarBtn()" title="收藏"><i class="fa-solid fa-star"></i></button>
       <button class="speak-btn-card" id="fc-speak-btn" onclick="event.stopPropagation();speakWord('${w.ru.replace(/'/g,"\\'")}')" title="发音"><i class="fa-solid fa-volume-high"></i></button>
 
+      <button class="card-nav-arrow card-nav-left" onclick="prevCard()" title="上一张"><i class="fa-solid fa-chevron-left"></i></button>
+      <button class="card-nav-arrow card-nav-right" onclick="nextCard()" title="下一张"><i class="fa-solid fa-chevron-right"></i></button>
+
       <div class="russian-word" id="fc-ru">${w.ru}</div>
       <div class="russian-tr" id="fc-tr">${w.tr||''}</div>
 
       <div class="answer-reveal answer-hidden" id="answer-reveal">
-        ${renderWordInfoHtml(w)}
       </div>
     </div>
 
@@ -3062,13 +3160,10 @@ function renderFlashcard() {
       <button class="stage-btn stage-btn-dontknow" onclick="handleStage1('dontknow')">不认识</button>
       <button class="stage-btn stage-btn-unsure" onclick="handleStage1('unsure')">模糊</button>
       <button class="stage-btn stage-btn-know" onclick="handleStage1('know')">认识</button>
-    </div>
-
-    <div class="stage-nav">
-      <button class="btn btn-ghost" onclick="prevCard()">←</button>
-      <button class="btn btn-ghost" onclick="shuffleCard()"><i class="fa-solid fa-shuffle"></i></button>
-      <button class="btn btn-ghost" onclick="nextCard()">→</button>
     </div></div>`;
+
+  // Fill answer content via the collapsible helper
+  updateWordInfoHtmlCollapsed(document.getElementById('answer-reveal'), w);
 
   // Cache DOM references for fast updates on next card
   _fcCache = {
@@ -3076,6 +3171,7 @@ function renderFlashcard() {
     filter: flashcardFilter,
     ruEl: document.getElementById('fc-ru'),
     trEl: document.getElementById('fc-tr'),
+    filterLabel: document.getElementById('fc-filter-label'),
     progressEl: document.getElementById('fc-progress'),
     starBtn: document.getElementById('star-btn'),
     speakBtn: document.getElementById('fc-speak-btn'),
