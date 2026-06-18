@@ -230,7 +230,7 @@
   .russian-word, .quiz-prompt, .listen-word { font-feature-settings: "kern"; text-rendering: optimizeLegibility; }
 
   main { width: 100%; max-width: 600px; padding: 10px var(--space-lg) 130px; flex: 1; contain: layout style; }
-  #main-content { animation: pageIn .3s cubic-bezier(.4,0,.2,1); contain: layout style; }
+  #main-content { animation: pageIn .3s cubic-bezier(.4,0,.2,1); contain: layout style; flex: 1; display: flex; flex-direction: column; }
 
   /* Filter Bar */
   .filter-bar { display: flex; gap: 4px; flex-wrap: wrap; margin-bottom: var(--space); background: var(--border-light); border-radius: var(--radius-sm); padding: 3px; }
@@ -259,12 +259,14 @@
   /* ── MaiMai-Style Flashcard ─── */
   .flashcard-container {
     display: flex; flex-direction: column; gap: var(--space-md);
+    flex: 1; min-height: 0;
     contain: layout style; overscroll-behavior: none;
-    padding: 0 var(--space-lg) 20px;
+    padding: 0 var(--space-lg);
+    padding-bottom: 16px;
   }
 
   /* ── Top bar (filter + back) ── */
-  .fc-top-bar { display: flex; align-items: center; justify-content: space-between; position: relative; }
+  .fc-top-bar { display: flex; align-items: center; justify-content: space-between; position: relative; flex-shrink: 0; }
   .fc-filter-label {
     font-size: var(--text-xs); color: var(--text-muted); cursor: pointer;
     padding: 2px 8px; border-radius: var(--radius-full);
@@ -272,8 +274,6 @@
   }
   .fc-filter-label:hover { background: var(--border-light); color: var(--text-secondary); }
   .fc-filter-label .fa-chevron-down { font-size: 9px; margin-left: 2px; }
-
-  /* Filter popup */
   .filter-popup {
     display: none; flex-direction: column; gap: 1px;
     position: absolute; top: 24px; left: 0; z-index: 50;
@@ -294,16 +294,14 @@
 
   /* ── Card Stage — fixed-height, internal scroll ── */
 
-  .word-progress { text-align: center; font-size: var(--text-sm); color: var(--text-muted); margin-bottom: 2px; }
+  .word-progress { text-align: center; font-size: var(--text-sm); color: var(--text-muted); margin-bottom: 2px; flex-shrink: 0; }
   .word-progress strong { color: var(--text); }
 
   .card-stage {
     background: transparent;
-    border-radius: 0;
-    box-shadow: none;
-    padding: var(--space-2xl) var(--space-lg);
+    padding: 0 var(--space-lg);
     text-align: center; position: relative;
-    max-height: none; min-height: 240px;
+    flex: 1 1 auto; min-height: 0;
     display: flex; flex-direction: column;
     align-items: center; justify-content: center;
     border: none;
