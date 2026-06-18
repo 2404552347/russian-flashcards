@@ -109,17 +109,20 @@
   .btn-sm { padding: 8px 18px; font-size: var(--text-sm); font-weight: 500; border-radius: var(--radius-sm); }
 .btn-lg { padding: 14px 36px; font-size: 17px; font-weight: 600; border-radius: var(--radius-full); }
 
-  /* Stage buttons — text only, minimal */
+  /* Stage buttons — subtle color, modern feel */
   .stage-btn {
     flex: 1; padding: 14px 10px; border-radius: var(--radius);
-    font-size: 16px; font-weight: 500; cursor: pointer;
+    font-size: 16px; font-weight: 600; cursor: pointer;
     transition: all var(--transition-fast); border: none;
-    background: transparent; color: var(--text-secondary);
+    background: var(--bg-secondary); color: var(--text-secondary);
   }
-  .stage-btn:active { background: var(--border-light); }
-  .stage-btn-know { color: var(--text); font-weight: 600; }
-  .stage-btn-unsure { color: var(--text-secondary); }
-  .stage-btn-dontknow { color: var(--text-muted); }
+  .stage-btn:active { transform: scale(.97); }
+  .stage-btn-know { background: #E6F9F2; color: #00A862; }
+  .stage-btn-know:hover { background: #C8F0DE; }
+  .stage-btn-unsure { background: #FFF8EB; color: #B0770C; }
+  .stage-btn-unsure:hover { background: #FEF0CC; }
+  .stage-btn-dontknow { background: #FEF2F2; color: #C44536; }
+  .stage-btn-dontknow:hover { background: #FDE8E8; }
 
   /* Stage 2 sub-buttons — outline style */
   .stage-sub-btn {
@@ -298,13 +301,15 @@
   .word-progress strong { color: var(--text); }
 
   .card-stage {
-    background: transparent;
-    padding: 0 var(--space-lg);
+    background: var(--card);
+    border-radius: var(--radius-lg);
+    box-shadow: var(--shadow);
+    padding: var(--space-xl) var(--space-lg);
     text-align: center; position: relative;
     flex: 1 1 auto; min-height: 0;
     display: flex; flex-direction: column;
     align-items: center; justify-content: center;
-    border: none;
+    border: 1px solid var(--border-light);
     contain: layout style paint;
     transition: transform .35s ease, opacity .35s ease;
     touch-action: none;
@@ -351,20 +356,20 @@
   .word-info-expandable.expanded { max-height: 400px; }
 
   .card-stage .star-btn-card {
-    position: absolute; top: 0; left: 0;
+    position: absolute; top: 8px; left: 12px;
     border: none; background: none; font-size: 20px; cursor: pointer;
-    transition: all var(--transition-fast); padding: 8px; line-height: 1;
-    opacity: .35; color: var(--text-secondary);
+    transition: all var(--transition-fast); padding: 4px; line-height: 1;
+    opacity: .4; color: var(--text-muted);
   }
-  .card-stage .star-btn-card:hover { opacity: .8; }
+  .card-stage .star-btn-card:hover { opacity: 1; color: #F59E0B; }
   .card-stage .star-btn-card.is-starred { opacity: 1; color: #F59E0B; }
   .card-stage .speak-btn-card {
-    position: absolute; top: 0; right: 0;
+    position: absolute; top: 8px; right: 12px;
     border: none; background: none; font-size: 20px; cursor: pointer;
-    transition: all var(--transition-fast); padding: 8px; line-height: 1;
-    opacity: .35; color: var(--text-secondary);
+    transition: all var(--transition-fast); padding: 4px; line-height: 1;
+    opacity: .4; color: var(--text-muted);
   }
-  .card-stage .speak-btn-card:hover { opacity: .8; }
+  .card-stage .speak-btn-card:hover { opacity: 1; color: var(--primary); }
 
   .russian-word { font-size: 42px; font-weight: 700; line-height: 1.2; word-break: break-all; color: var(--text); margin-bottom: 8px; letter-spacing: 0; }
   .russian-tr { font-size: 16px; color: var(--text-muted); margin-bottom: 20px; font-weight: 400; }
@@ -374,7 +379,7 @@
   /* Answer reveal area */
   .answer-reveal {
     margin-top: var(--space-lg); padding-top: var(--space-lg);
-    border-top: 1px solid var(--border); width: 100%;
+    border-top: 2px solid var(--primary); width: 100%;
     animation: revealSlide .35s ease;
     text-align: center;
   }
