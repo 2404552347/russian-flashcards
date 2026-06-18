@@ -461,7 +461,7 @@ function migrateLangToFolders(lang) {
 
 function insertWordLocal(word, tr, zh, pos) {
   const id = (crypto.randomUUID) ? crypto.randomUUID() : 'id-' + Date.now() + '-' + Math.random().toString(36).substr(2, 9);
-  const w = { id, ru: word, tr: tr || '', zh, pos: pos || '', example: '', exampleZh: '' };
+  const w = { id, ru: word, tr: tr || '', zh, pos: pos || '', example: '', exampleZh: '', stress: '', gender: '', aspect: '', pairWord: '', level: '', mnemonic: '' };
   WORDS.push(w);
   addToWordMap(w);
   invalidateSRSStats();
@@ -576,6 +576,57 @@ function getTotalWordsForLang(lang) {
   let total = 0;
   for (const f of flds) total += (loadDeckFromStorage(lang, f.id) || []).length;
   return total;
+}
+
+// ========================================================
+//  WORD INFO MAP — mini Russian dictionary for flashcard back
+// ========================================================
+const WORD_INFO_MAP = {
+  'человек':     { pos:'名词', stress:'челове́к', gender:'阳性', level:'A1', mnemonic:'词根 челове́(к) 与"人类"相关', example:'Это хороший человек.', exampleZh:'这是个好人。' },
+  'год':         { pos:'名词', stress:'год', gender:'阳性', level:'A1', mnemonic:'与英语 year 类似，注意复数 го́ды', example:'В году 365 дней.', exampleZh:'一年有365天。' },
+  'время':       { pos:'名词', stress:'вре́мя', gender:'中性', level:'A1', mnemonic:'-мя 结尾的中性名词，变格特殊', example:'У меня нет времени.', exampleZh:'我没有时间。' },
+  'дело':        { pos:'名词', stress:'де́ло', gender:'中性', level:'A2', mnemonic:'基本义"事情"，常见短语 на самом деле (实际上)', example:'Это не моё дело.', exampleZh:'这不关我的事。' },
+  'жизнь':       { pos:'名词', stress:'жизнь', gender:'阴性', level:'A2', mnemonic:'与 жить (生活/住) 同根', example:'Это жизнь!', exampleZh:'这就是人生！' },
+  'рука':        { pos:'名词', stress:'рука́', gender:'阴性', level:'A1', mnemonic:'注意复数不規則: ру́ки', example:'У меня болит рука.', exampleZh:'我的手疼。' },
+  'слово':       { pos:'名词', stress:'сло́во', gender:'中性', level:'A1', mnemonic:'与"слово"同根的有 словарь(词典)、словесный(口头的)', example:'Я не знаю это слово.', exampleZh:'我不知道这个词。' },
+  'книга':       { pos:'名词', stress:'кни́га', gender:'阴性', level:'A1', mnemonic:'注意重音在第一音节 кни́га', example:'Это моя книга.', exampleZh:'这是我的书。' },
+  'день':        { pos:'名词', stress:'день', gender:'阳性', level:'A1', mnemonic:'день 变格特殊: дня, дни', example:'Добрый день!', exampleZh:'下午好！' },
+  'глаз':        { pos:'名词', stress:'глаз', gender:'阳性', level:'A1', mnemonic:'复数 глаза́ (重音移位到末尾)', example:'У неё красивые глаза.', exampleZh:'她有一双漂亮的眼睛。' },
+
+  'читать':      { pos:'动词', stress:'чита́ть', aspect:'未完成体', pairWord:'прочита́ть', level:'A1', mnemonic:'词根 чит 与"阅读"相关，чита́ю/чита́ешь/чита́ют', example:'Я читаю книгу.', exampleZh:'我正在读书。' },
+  'говорить':    { pos:'动词', stress:'говори́ть', aspect:'未完成体', pairWord:'сказа́ть', level:'A1', mnemonic:'注意重音在词尾: говорю́/говори́шь/говоря́т', example:'Я говорю по-русски.', exampleZh:'我说俄语。' },
+  'делать':      { pos:'动词', stress:'де́лать', aspect:'未完成体', pairWord:'сде́лать', level:'A1', mnemonic:'万能动词，相当于英语 do/make', example:'Что ты делаешь?', exampleZh:'你在做什么？' },
+  'думать':      { pos:'动词', stress:'ду́мать', aspect:'未完成体', pairWord:'поду́мать', level:'A2', mnemonic:'与 дума (思想/议会) 同根', example:'Я думаю, что это правильно.', exampleZh:'我认为这是对的。' },
+  'знать':       { pos:'动词', stress:'знать', aspect:'未完成体', level:'A1', mnemonic:'与 знание(知识)同根，зна́ю/зна́ешь', example:'Я знаю это слово.', exampleZh:'我知道这个词。' },
+  'работать':    { pos:'动词', stress:'рабо́тать', aspect:'未完成体', level:'A1', mnemonic:'与 работа (工作) 同根，рабо́таю/рабо́таешь', example:'Я работаю в школе.', exampleZh:'我在学校工作。' },
+  'понимать':    { pos:'动词', stress:'понима́ть', aspect:'未完成体', pairWord:'поня́ть', level:'A2', mnemonic:'重音在词尾: понима́ю/понима́ешь', example:'Я не понимаю.', exampleZh:'我不明白。' },
+  'любить':      { pos:'动词', stress:'люби́ть', aspect:'未完成体', level:'A1', mnemonic:'люблю́/лю́бишь (я 变位特殊!)', example:'Я тебя люблю.', exampleZh:'我爱你。' },
+  'жить':        { pos:'动词', stress:'жить', aspect:'未完成体', level:'A1', mnemonic:'живу́/живёшь (辅音交替)', example:'Я живу в России.', exampleZh:'我住在俄罗斯。' },
+
+  'хороший':     { pos:'形容词', stress:'хоро́ший', level:'A1', mnemonic:'阳: хоро́ший, 阴: хоро́шая, 中: хоро́шее, 复: хоро́шие', example:'Это хороший вопрос.', exampleZh:'这是个好问题。' },
+  'большой':     { pos:'形容词', stress:'большо́й', level:'A1', mnemonic:'重音在词尾: большо́й/больша́я/большо́е/больши́е', example:'Это большой город.', exampleZh:'这是个大城市。' },
+  'новый':       { pos:'形容词', stress:'но́вый', level:'A1', mnemonic:'注意: 阳性短尾是 нов (非 новый)', example:'Это новая машина.', exampleZh:'这是辆新车。' },
+
+  'очень':       { pos:'副词', stress:'о́чень', level:'A1', mnemonic:'最常用程度副词，相当于英语 very', example:'Это очень интересно.', exampleZh:'这很有趣。' },
+  'хорошо':      { pos:'副词', stress:'хорошо́', level:'A1', mnemonic:'由形容词 хороший 变化而来', example:'Я хорошо говорю по-русски.', exampleZh:'我俄语说得很好。' },
+};
+
+function enrichWordFromMap(w) {
+  if (!w || w._enriched) return;
+  // Look up by ru field (with stress marks stripped for matching)
+  const clean = w.ru.replace(/[́̀]/g, '');
+  const info = WORD_INFO_MAP[clean] || WORD_INFO_MAP[w.ru];
+  if (!info) return;
+  // Auto-fill all fields from the map (never overwrite user-edited values)
+  if (info.pos && !w.pos) w.pos = info.pos;
+  if (info.stress && !w.stress) w.stress = info.stress;
+  if (info.gender && !w.gender) w.gender = info.gender;
+  if (info.aspect && !w.aspect) w.aspect = info.aspect;
+  if (info.pairWord && !w.pairWord) w.pairWord = info.pairWord;
+  if (info.level && !w.level) w.level = info.level;
+  if (info.mnemonic && !w.mnemonic) w.mnemonic = info.mnemonic;
+  if (info.example && !w.example) { w.example = info.example; w.exampleZh = info.exampleZh || ''; }
+  w._enriched = true;
 }
 
 // ========================================================
@@ -2151,6 +2202,7 @@ async function fetchExample(wordId) {
     if (bestRu) {
       bestZh = toSimplified(bestZh);
       w.example = bestRu; w.exampleZh = bestZh;
+      enrichWordFromMap(w);
       saveDeckDebounced();
       const exampleEl = document.getElementById('word-example-' + wordId);
       if (exampleEl) {
@@ -2197,6 +2249,7 @@ async function fetchExampleForQuiz(wordId) {
     if (bestRu) {
       bestZh = toSimplified(bestZh);
       w.example = bestRu; w.exampleZh = bestZh;
+      enrichWordFromMap(w);
       saveDeckDebounced();
       // Update quiz feedback if visible
       const fb = document.getElementById('quiz-feedback');
@@ -2573,6 +2626,7 @@ function renderSessionCard() {
   cardStage = 1;
   const wordId = sessionQueue[flashcardIndex];
   const w = wordMap.get(wordId);
+  enrichWordFromMap(w);
   if (!w) {
     // Word might have been deleted
     sessionQueue.splice(flashcardIndex, 1);
@@ -2612,11 +2666,7 @@ function renderSessionCard() {
       <div class="russian-tr">${escHtml(w.tr||'')}</div>
 
       <div class="answer-reveal answer-hidden" id="answer-reveal">
-        <div class="chinese-def">${escHtml(w.zh)}</div>
-        <div class="word-pos">${escHtml(w.pos||'')}</div>
-        <div class="word-example" id="word-example-${w.id}">
-          ${w.example ? '<div class="example-text">' + escHtml(w.example) + '</div>' + (w.exampleZh ? '<div class="example-zh">' + escHtml(toSimplified(w.exampleZh)) + '</div>' : '') + '<button class="btn-speak-example" onclick="event.stopPropagation();speakWord(\'' + w.example.replace(/'/g,"\\'") + '\')\" style=\"margin-top:8px;\"><i class=\"fa-solid fa-volume-high\"></i> 朗读</button>' : '<button class="btn-generate-example" id="btn-gen-' + w.id + '" onclick="event.stopPropagation();fetchExample(\'' + w.id + '\')\" style=\"margin-top:6px;\"><i class=\"fa-solid fa-robot\"></i> 生成例句</button>'}
-        </div>
+        ${renderWordInfoHtml(w)}
       </div>
     </div>
 
@@ -2777,6 +2827,103 @@ cardStage = 1; // 1 = question, 2 = answer revealed
 // DOM cache for fast card updates (avoids innerHTML rebuild on mobile)
 let _fcCache = null; // { poolRef, filter, ruEl, trEl, zhEl, posEl, progressEl, badgeEl, starBtn, revealEl, stageEl, actionsEl, exampleEl, speakBtn }
 
+// ── Word info card builder ────────────────────────────────
+function renderWordInfoHtml(w) {
+  // Build structured info sections: 词条信息 / 例句 / 记忆提示
+  const hasInfo = w.pos || w.stress || w.gender || w.aspect || w.pairWord || w.level;
+  const hasExample = w.example && w.example.trim();
+
+  // Info rows: [label, value] pairs — only render if value exists
+  const infoRows = [
+    ['词性', w.pos],
+    ['体', w.aspect],
+    ['重音', w.stress],
+    ['性别', w.gender],
+    ['等级', w.level],
+    ['对应体', w.pairWord],
+  ].filter(r => r[1]);
+
+  let html = '';
+  html += '<div class="chinese-def" id="fc-zh">' + escHtml(w.zh) + '</div>';
+  html += '<div class="word-pos" id="fc-pos">' + escHtml(w.pos||'') + '</div>';
+
+  // ── 词条信息 section ──
+  if (infoRows.length > 0) {
+    html += '<div class="word-info-card">';
+    html += '<div class="word-info-section-label">词条信息</div>';
+    for (const [label, value] of infoRows) {
+      html += '<div class="word-info-row"><span class="word-info-label">' + label + '</span><span class="word-info-value">' + escHtml(value) + '</span></div>';
+    }
+    html += '</div>';
+  }
+
+  // ── 例句 section ──
+  html += '<div class="word-example" id="word-example-' + w.id + '">';
+  if (hasExample) {
+    html += '<div class="word-info-section-label">例句</div>';
+    html += '<div class="example-text">' + escHtml(w.example) + '</div>';
+    if (w.exampleZh) html += '<div class="example-zh">' + escHtml(toSimplified(w.exampleZh)) + '</div>';
+    html += '<button class="btn-speak-example" onclick="event.stopPropagation();speakWord(\'' + escHtml(w.example).replace(/'/g,"\\'") + '\')" style="margin-top:6px;"><i class="fa-solid fa-volume-high"></i> 朗读</button>';
+  } else {
+    html += '<button class="btn-generate-example" id="btn-gen-' + w.id + '" onclick="event.stopPropagation();fetchExample(\'' + w.id + '\')" style="margin-top:6px;"><i class="fa-solid fa-robot"></i> 生成例句</button>';
+  }
+  html += '</div>';
+
+  // ── 记忆提示 section ──
+  if (w.mnemonic) {
+    html += '<div class="word-info-card word-mnemonic-card">';
+    html += '<div class="word-info-section-label">记忆提示</div>';
+    html += '<div class="word-mnemonic-text">' + escHtml(w.mnemonic) + '</div>';
+    html += '</div>';
+  }
+
+  return html;
+}
+
+// Render only the word info part (for fast-path DOM cache)
+function updateWordInfoHtml(el, w) {
+  const infoRows = [
+    ['词性', w.pos],
+    ['体', w.aspect],
+    ['重音', w.stress],
+    ['性别', w.gender],
+    ['等级', w.level],
+    ['对应体', w.pairWord],
+  ].filter(r => r[1]);
+
+  let html = '<div class="chinese-def">' + escHtml(w.zh) + '</div>';
+  html += '<div class="word-pos">' + escHtml(w.pos||'') + '</div>';
+
+  if (infoRows.length > 0) {
+    html += '<div class="word-info-card">';
+    html += '<div class="word-info-section-label">词条信息</div>';
+    for (const [label, value] of infoRows) {
+      html += '<div class="word-info-row"><span class="word-info-label">' + label + '</span><span class="word-info-value">' + escHtml(value) + '</span></div>';
+    }
+    html += '</div>';
+  }
+
+  html += '<div class="word-example" id="word-example-' + w.id + '">';
+  if (w.example) {
+    html += '<div class="word-info-section-label">例句</div>';
+    html += '<div class="example-text">' + escHtml(w.example) + '</div>';
+    if (w.exampleZh) html += '<div class="example-zh">' + escHtml(toSimplified(w.exampleZh)) + '</div>';
+    html += '<button class="btn-speak-example" onclick="event.stopPropagation();speakWord(\'' + escHtml(w.example).replace(/'/g,"\\'") + '\')" style="margin-top:6px;"><i class="fa-solid fa-volume-high"></i> 朗读</button>';
+  } else {
+    html += '<button class="btn-generate-example" id="btn-gen-' + w.id + '" onclick="event.stopPropagation();fetchExample(\'' + w.id + '\')" style="margin-top:6px;"><i class="fa-solid fa-robot"></i> 生成例句</button>';
+  }
+  html += '</div>';
+
+  if (w.mnemonic) {
+    html += '<div class="word-info-card word-mnemonic-card">';
+    html += '<div class="word-info-section-label">记忆提示</div>';
+    html += '<div class="word-mnemonic-text">' + escHtml(w.mnemonic) + '</div>';
+    html += '</div>';
+  }
+
+  el.innerHTML = html;
+}
+
 function renderFlashcard() {
   if (WORDS.length === 0) {
     _fcCache = null;
@@ -2803,6 +2950,7 @@ function renderFlashcard() {
   if (flashcardIndex >= flashcardPool.length) flashcardIndex = 0;
   cardStage = 1;
   const w = WORDS[flashcardPool[flashcardIndex]];
+  enrichWordFromMap(w);
   const label = getSRSLabel(w.id), badge = getSRSBadgeClass(w.id);
   const starredClass = isStarred(w.id) ? 'is-starred' : '';
 
@@ -2810,8 +2958,6 @@ function renderFlashcard() {
   if (_fcCache && _fcCache.poolRef === flashcardPool && _fcCache.filter === flashcardFilter) {
     _fcCache.ruEl.textContent = w.ru;
     _fcCache.trEl.textContent = w.tr || '';
-    _fcCache.zhEl.textContent = w.zh;
-    _fcCache.posEl.textContent = w.pos || '';
     _fcCache.progressEl.innerHTML = (flashcardIndex + 1) + ' / ' + flashcardPool.length + ' · <span class="card-srs-badge ' + badge + '">' + label + '</span>';
     _fcCache.revealEl.classList.add('answer-hidden');
     _fcCache.stageEl.classList.remove('revealed');
@@ -2819,14 +2965,7 @@ function renderFlashcard() {
     _fcCache.starBtn.setAttribute('onclick', "event.stopPropagation();toggleStar('" + w.id + "');renderStarBtn()");
     _fcCache.speakBtn.setAttribute('onclick', "event.stopPropagation();speakWord('" + w.ru.replace(/'/g,"\\'") + "')");
     _fcCache.actionsEl.innerHTML = '<button class="stage-btn stage-btn-dontknow" onclick="handleStage1(\'dontknow\')">不认识</button><button class="stage-btn stage-btn-unsure" onclick="handleStage1(\'unsure\')">模糊</button><button class="stage-btn stage-btn-know" onclick="handleStage1(\'know\')">认识</button>';
-    // Update example section
-    _fcCache.exampleEl.id = 'word-example-' + w.id;
-    if (w.example) {
-      _fcCache.exampleEl.innerHTML = '<div class="example-text">' + escHtml(w.example) + '</div>' + (w.exampleZh ? '<div class="example-zh">' + escHtml(toSimplified(w.exampleZh)) + '</div>' : '') + '<button class="btn-speak-example" onclick="event.stopPropagation();speakWord(\'' + w.example.replace(/'/g,"\\'") + '\')" style="margin-top:8px;"><i class="fa-solid fa-volume-high"></i> 朗读</button>';
-    } else {
-      _fcCache.exampleEl.innerHTML = '<button class="btn-generate-example" id="btn-gen-' + w.id + '" onclick="event.stopPropagation();fetchExample(\'' + w.id + '\')" style="margin-top:6px;"><i class="fa-solid fa-robot"></i> 生成例句</button>';
-    }
-    // Auto-fetch example if needed
+    updateWordInfoHtml(_fcCache.revealEl, w);
     if (!w.example && !w._exampleFetching) { w._exampleFetching = true; fetchExample(w.id); }
     return;
   }
@@ -2848,11 +2987,7 @@ function renderFlashcard() {
       <div class="russian-tr" id="fc-tr">${w.tr||''}</div>
 
       <div class="answer-reveal answer-hidden" id="answer-reveal">
-        <div class="chinese-def" id="fc-zh">${w.zh}</div>
-        <div class="word-pos" id="fc-pos">${w.pos||''}</div>
-        <div class="word-example" id="word-example-${w.id}">
-          ${w.example ? '<div class="example-text">' + escHtml(w.example) + '</div>' + (w.exampleZh ? '<div class="example-zh">' + escHtml(toSimplified(w.exampleZh)) + '</div>' : '') + '<button class="btn-speak-example" onclick="event.stopPropagation();speakWord(\'' + w.example.replace(/'/g,"\\'") + '\')\" style=\"margin-top:8px;\"><i class=\"fa-solid fa-volume-high\"></i> 朗读</button>' : '<button class="btn-generate-example" id="btn-gen-' + w.id + '" onclick="event.stopPropagation();fetchExample(\'' + w.id + '\')\" style=\"margin-top:6px;\"><i class=\"fa-solid fa-robot\"></i> 生成例句</button>'}
-        </div>
+        ${renderWordInfoHtml(w)}
       </div>
     </div>
 
@@ -2874,15 +3009,12 @@ function renderFlashcard() {
     filter: flashcardFilter,
     ruEl: document.getElementById('fc-ru'),
     trEl: document.getElementById('fc-tr'),
-    zhEl: document.getElementById('fc-zh'),
-    posEl: document.getElementById('fc-pos'),
     progressEl: document.getElementById('fc-progress'),
     starBtn: document.getElementById('star-btn'),
     speakBtn: document.getElementById('fc-speak-btn'),
     revealEl: document.getElementById('answer-reveal'),
     stageEl: document.getElementById('card-stage'),
-    actionsEl: document.getElementById('stage-actions'),
-    exampleEl: document.getElementById('word-example-' + w.id)
+    actionsEl: document.getElementById('stage-actions')
   };
 
   // Auto-fetch example if word does not have one yet
@@ -3534,7 +3666,7 @@ function addFromDictionary(ru, tr, zh, pos) {
     if (normalize(WORDS[i].ru) === normRu) { showToast('该词已在当前词库中', ''); return; }
   }
   const id = (crypto.randomUUID) ? crypto.randomUUID() : 'id-' + Date.now() + '-' + Math.random().toString(36).substr(2, 9);
-  const w = { id, ru, tr: tr || '', zh, pos: pos || '', example: '', exampleZh: '' };
+  const w = { id, ru, tr: tr || '', zh, pos: pos || '', example: '', exampleZh: '', stress: '', gender: '', aspect: '', pairWord: '', level: '', mnemonic: '' };
   WORDS.push(w);
   addToWordMap(w);
   invalidateSRSStats();
@@ -3685,8 +3817,14 @@ function openEditModal(wordId) {
   document.getElementById('edit-tr').value = w.tr || '';
   document.getElementById('edit-zh').value = w.zh;
   document.getElementById('edit-pos').value = w.pos || '';
+  document.getElementById('edit-stress').value = w.stress || '';
+  document.getElementById('edit-gender').value = w.gender || '';
+  document.getElementById('edit-aspect').value = w.aspect || '';
+  document.getElementById('edit-pairWord').value = w.pairWord || '';
+  document.getElementById('edit-level').value = w.level || '';
   document.getElementById('edit-example').value = w.example || '';
   document.getElementById('edit-exampleZh').value = w.exampleZh || '';
+  document.getElementById('edit-mnemonic').value = w.mnemonic || '';
   document.getElementById('edit-modal').classList.add('show');
 }
 function closeEditModal() { editingWordId = null; document.getElementById('edit-modal').classList.remove('show'); }
@@ -3697,9 +3835,16 @@ function saveEdit() {
   w.tr = document.getElementById('edit-tr').value.trim();
   w.zh = document.getElementById('edit-zh').value.trim() || w.zh;
   w.pos = document.getElementById('edit-pos').value.trim();
+  w.stress = document.getElementById('edit-stress').value.trim();
+  w.gender = document.getElementById('edit-gender').value.trim();
+  w.aspect = document.getElementById('edit-aspect').value.trim();
+  w.pairWord = document.getElementById('edit-pairWord').value.trim();
+  w.level = document.getElementById('edit-level').value.trim();
   w.example = document.getElementById('edit-example').value.trim();
   w.exampleZh = document.getElementById('edit-exampleZh').value.trim();
+  w.mnemonic = document.getElementById('edit-mnemonic').value.trim();
   updateWordLocal(editingWordId, w.ru, w.tr, w.zh, w.pos, w.example, w.exampleZh);
+  saveDeckDebounced();
   closeEditModal();
   renderMain();
 }
@@ -3905,7 +4050,7 @@ function confirmImport() {
   for (const p of pendingImport) {
     if (existingSet.has(normalize(p.ru))) continue;
     const id = (crypto.randomUUID) ? crypto.randomUUID() : 'id-' + Date.now() + '-' + Math.random().toString(36).substr(2, 9);
-    targetWords.push({ id, ru: p.ru, tr: p.tr || '', zh: p.zh, pos: p.pos || '', example: '', exampleZh: '' });
+    targetWords.push({ id, ru: p.ru, tr: p.tr || '', zh: p.zh, pos: p.pos || '', example: '', exampleZh: '', stress: '', gender: '', aspect: '', pairWord: '', level: '', mnemonic: '' });
     existingSet.add(normalize(p.ru)); added++;
   }
   if (targetFolderId !== activeFolderId) {

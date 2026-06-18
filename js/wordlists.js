@@ -39,7 +39,7 @@ async function importWordPack(packKey) {
     const [ru, tr, zh, pos] = pack.words[i];
     if (existingSet.has(normalize(ru))) { skipped++; continue; }
     const id = (crypto.randomUUID) ? crypto.randomUUID() : 'id-' + Date.now() + '-' + Math.random().toString(36).substr(2, 9);
-    WORDS.push({ id, ru, tr: tr || '', zh, pos: pos || '', example: '', exampleZh: '' });
+    WORDS.push({ id, ru, tr: tr || '', zh, pos: pos || '', example: '', exampleZh: '', stress: '', gender: '', aspect: '', pairWord: '', level: '', mnemonic: '' });
     existingSet.add(normalize(ru));
     imported++;
     // Yield every 100 words to keep UI responsive

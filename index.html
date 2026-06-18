@@ -83,11 +83,11 @@
 <script src="https://cdn.jsdelivr.net/npm/mammoth@1.6.0/mammoth.browser.min.js" defer></script>
 	<!-- Preload critical CSS — downloads start immediately, in parallel -->
 	<link rel="preload" as="style" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
-	<link rel="preload" as="style" href="css/style.css?v=15">
+	<link rel="preload" as="style" href="css/style.css?v=16">
 	<!-- Apply (preloaded resources hit cache, zero re-download) -->
 		<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css" media="print" onload="this.media='all'">
-	<link rel="stylesheet" href="css/style.css?v=15" media="print" onload="this.media='all'">
-		<noscript><link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css"><link rel="stylesheet" href="css/style.css?v=15"></noscript>
+	<link rel="stylesheet" href="css/style.css?v=16" media="print" onload="this.media='all'">
+		<noscript><link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css"><link rel="stylesheet" href="css/style.css?v=16"></noscript>
 </head>
 <body>
 
@@ -366,12 +366,26 @@
       <button class="modal-close" onclick="closeEditModal()"><i class="fa-solid fa-xmark"></i></button>
     </div>
     <div class="modal-body">
-      <div class="form-group"><label>单词</label><input type="text" id="edit-ru" placeholder="单词"></div>
-      <div class="form-group"><label>音标</label><input type="text" id="edit-tr" placeholder="音标"></div>
-      <div class="form-group"><label>中文</label><input type="text" id="edit-zh" placeholder="中文释义"></div>
-      <div class="form-group"><label>词性</label><input type="text" id="edit-pos" placeholder="词性"></div>
-      <div class="form-group"><label>例句（俄语）</label><input type="text" id="edit-example" placeholder="俄语例句"></div>
-      <div class="form-group"><label>例句（中文）</label><input type="text" id="edit-exampleZh" placeholder="中文翻译"></div>
+	      <div class="form-group"><label>单词</label><input type="text" id="edit-ru" placeholder="单词"></div>
+	      <div class="edit-row-2">
+	        <div class="form-group"><label>音标</label><input type="text" id="edit-tr" placeholder="音标"></div>
+	        <div class="form-group"><label>中文</label><input type="text" id="edit-zh" placeholder="中文释义"></div>
+	      </div>
+	      <div class="edit-row-2">
+	        <div class="form-group"><label>词性</label><input type="text" id="edit-pos" placeholder="词性"></div>
+	        <div class="form-group"><label>重音</label><input type="text" id="edit-stress" placeholder="如: чита́ть"></div>
+	      </div>
+	      <div class="edit-row-2">
+	        <div class="form-group"><label>性别</label><input type="text" id="edit-gender" placeholder="阳性/阴性/中性"></div>
+	        <div class="form-group"><label>体</label><input type="text" id="edit-aspect" placeholder="完成体/未完成体"></div>
+	      </div>
+	      <div class="edit-row-2">
+	        <div class="form-group"><label>对应体动词</label><input type="text" id="edit-pairWord" placeholder="如: прочитать"></div>
+	        <div class="form-group"><label>等级</label><input type="text" id="edit-level" placeholder="A1/A2/B1/B2/C1/C2"></div>
+	      </div>
+	      <div class="form-group"><label>例句（俄语）</label><input type="text" id="edit-example" placeholder="俄语例句"></div>
+	      <div class="form-group"><label>例句（中文）</label><input type="text" id="edit-exampleZh" placeholder="中文翻译"></div>
+	      <div class="form-group"><label>记忆提示</label><input type="text" id="edit-mnemonic" placeholder="帮助记忆的提示"></div>
     </div>
     <div class="modal-footer">
       <button class="btn btn-ghost" onclick="closeEditModal()">取消</button>
@@ -408,7 +422,7 @@
 </div>
 
 	<script src="js/wordlists.js?v=7" defer></script>
-	<script src="js/core.js?v=13" defer></script>
+	<script src="js/core.js?v=14" defer></script>
 	<!-- js/app.js loaded lazily by core.js after successful login -->
 
 </body>
