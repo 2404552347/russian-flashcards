@@ -3146,9 +3146,6 @@ function renderFlashcard() {
       <button class="star-btn-card ${starredClass}" id="star-btn" onclick="event.stopPropagation();toggleStar('${w.id}');renderStarBtn()" title="收藏"><i class="fa-solid fa-star"></i></button>
       <button class="speak-btn-card" id="fc-speak-btn" onclick="event.stopPropagation();speakWord('${w.ru.replace(/'/g,"\\'")}')" title="发音"><i class="fa-solid fa-volume-high"></i></button>
 
-      <button class="card-nav-arrow card-nav-left" onclick="prevCard()" title="上一张"><i class="fa-solid fa-chevron-left"></i></button>
-      <button class="card-nav-arrow card-nav-right" onclick="nextCard()" title="下一张"><i class="fa-solid fa-chevron-right"></i></button>
-
       <div class="russian-word" id="fc-ru">${w.ru}</div>
       <div class="russian-tr" id="fc-tr">${w.tr||''}</div>
 
@@ -3179,6 +3176,9 @@ function renderFlashcard() {
     stageEl: document.getElementById('card-stage'),
     actionsEl: document.getElementById('stage-actions')
   };
+
+  // Enable swipe gestures
+  initSwipe();
 
   // Auto-fetch example if word does not have one yet
   if (!w.example && !w._exampleFetching) {
@@ -4778,6 +4778,8 @@ function updateStreakUI() {
 // ========================================================
 //  SWIPE GESTURES (two-stage aware)
 // ========================================================
+//  SWIPE GESTURES — card swipe for answer + prev/next
+// ========================================================
 swipeStartX = 0; swipeStartY = 0; swipeCurrentX = 0; swipeActive = false;
 function initSwipe() {
   const card = document.getElementById('card-stage');
@@ -4810,8 +4812,8 @@ function handleSwipeMove(e) {
   const rotation = dx * .04;
   const alpha = Math.min(Math.abs(dx) / 80, 1);
   card.style.transform = `translateX(${dx}px) rotate(${rotation}deg)`;
-  if (dx > 20) card.style.boxShadow = `0 0 24px rgba(44,94,59,${alpha * .35})`;
-  else if (dx < -20) card.style.boxShadow = `0 0 24px rgba(196,69,54,${alpha * .35})`;
+  if (dx > 20) card.style.boxShadow = `0 0 24px rgba(0,0,0,${alpha * .12})`;
+  else if (dx < -20) card.style.boxShadow = `0 0 24px rgba(0,0,0,${alpha * .12})`;
   else card.style.boxShadow = '';
 }
 function handleSwipeEnd(e) {
@@ -4824,20 +4826,21 @@ function handleSwipeEnd(e) {
   if (Math.abs(dx) < 10) {
     resetCardSwipe();
     if (e.type === 'mouseup' && Math.abs(swipeCurrentX - swipeStartX) < 5 && Math.abs((e.clientY || swipeStartY) - swipeStartY) < 5) {
-      // Small tap → speak word
       const idx = flashcardPool[flashcardIndex];
       if (idx !== undefined) speakWord(WORDS[idx].ru);
     }
     return;
   }
+  // Strong swipe right → next card (or 'know' before reveal)
   if (dx > 80) {
     card.style.transition = 'transform .25s ease, opacity .25s ease';
     card.style.transform = 'translateX(300px) rotate(12deg)'; card.style.opacity = '0';
-    setTimeout(() => { resetCardSwipe(); if (cardStage === 1) handleStage1('know'); else handleStage1('know'); }, 250);
+    setTimeout(() => { resetCardSwipe(); cardStage === 1 ? handleStage1('know') : nextCard(); }, 250);
+  // Strong swipe left → prev card (or 'dontknow' before reveal)
   } else if (dx < -80) {
     card.style.transition = 'transform .25s ease, opacity .25s ease';
     card.style.transform = 'translateX(-300px) rotate(-12deg)'; card.style.opacity = '0';
-    setTimeout(() => { resetCardSwipe(); if (cardStage === 1) handleStage1('dontknow'); else handleStage1('dontknow'); }, 250);
+    setTimeout(() => { resetCardSwipe(); cardStage === 1 ? handleStage1('dontknow') : prevCard(); }, 250);
   } else { resetCardSwipe(); }
 }
 function resetCardSwipe() {
