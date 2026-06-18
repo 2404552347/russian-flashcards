@@ -83,11 +83,11 @@
 <script src="https://cdn.jsdelivr.net/npm/mammoth@1.6.0/mammoth.browser.min.js" defer></script>
 	<!-- Preload critical CSS — downloads start immediately, in parallel -->
 	<link rel="preload" as="style" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
-	<link rel="preload" as="style" href="css/style.css?v=16">
+	<link rel="preload" as="style" href="css/style.css?v=17">
 	<!-- Apply (preloaded resources hit cache, zero re-download) -->
 		<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css" media="print" onload="this.media='all'">
-	<link rel="stylesheet" href="css/style.css?v=16" media="print" onload="this.media='all'">
-		<noscript><link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css"><link rel="stylesheet" href="css/style.css?v=16"></noscript>
+	<link rel="stylesheet" href="css/style.css?v=17" media="print" onload="this.media='all'">
+		<noscript><link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css"><link rel="stylesheet" href="css/style.css?v=17"></noscript>
 </head>
 <body>
 
@@ -329,23 +329,32 @@
         </div>
       </div>
       <div class="drop-zone" id="drop-zone" onclick="document.getElementById('file-input').click()">
-        <div class="dz-icon"><i class="fa-solid fa-file-lines"></i></div>
+        <div class="dz-icon"><i class="fa-solid fa-file-import"></i></div>
         <div class="dz-text">点击上传或拖拽文件到此处</div>
-        <div class="dz-hint">支持 .docx / .txt 文件</div>
-        <input type="file" id="file-input" accept=".docx,.txt" onchange="handleFile(event)">
+        <div class="dz-hint">支持 .txt / .csv / .json / .docx</div>
+        <input type="file" id="file-input" accept=".txt,.csv,.json,.docx" onchange="handleFile(event)">
       </div>
       <div class="divider">或者直接粘贴文本</div>
-      <textarea id="paste-area" placeholder="每行一个单词：&#10;hello - 你好&#10;Guten Tag	你好&#10;감사합니다	谢谢"></textarea>
-      <div class="format-hints">支持格式：<code>外文 - 中文</code>、<code>外文 [音标] 中文 词性</code>、<code>外文	中文</code>（Tab分隔）</div>
-      <button class="btn btn-outline btn-sm" style="margin-top:10px;width:100%;" onclick="parsePastedText()">解析文本</button>
+      <textarea id="paste-area" placeholder="粘贴文本内容：&#10;читать=阅读&#10;книга,书,noun,кни́га,阴性,,A1&#10;[{&quot;word&quot;:&quot;дом&quot;,&quot;translation&quot;:&quot;房子&quot;}]"></textarea>
+      <div class="format-hints">
+        支持格式：<code>TXT</code>（читать=阅读）· <code>CSV</code>（word,translation,pos,...）· <code>JSON</code>（[{"word":"...","translation":"..."}]）· <code>Tab分隔</code>
+      </div>
+      <button class="btn btn-outline btn-sm" style="margin-top:10px;width:100%;" onclick="parsePastedText()"><i class="fa-solid fa-wand-magic-sparkles"></i> 解析文本</button>
       <div id="preview-section" style="display:none;">
         <div class="preview-count">
           <span id="preview-count-text"></span>
           <button class="btn btn-ghost btn-sm" onclick="clearImport()" style="color:#c44536;">清除</button>
         </div>
-        <div style="max-height: 280px; overflow-y: auto;">
+        <div id="import-stats" style="font-size:12px;margin-bottom:8px;"></div>
+        <div id="import-dup-options" style="display:none;gap:4px;margin-bottom:8px;align-items:center;">
+          <span style="font-size:11px;color:var(--text-muted);margin-right:4px;">重复单词：</span>
+          <button class="btn btn-ghost btn-sm import-dup-btn active" id="dup-skip" onclick="setImportDupStrategy('skip')">跳过</button>
+          <button class="btn btn-ghost btn-sm import-dup-btn" id="dup-overwrite" onclick="setImportDupStrategy('overwrite')">覆盖</button>
+          <button class="btn btn-ghost btn-sm import-dup-btn" id="dup-keep" onclick="setImportDupStrategy('keep')">保留两者</button>
+        </div>
+        <div style="max-height: 240px; overflow-y: auto;">
           <table class="preview-table">
-            <thead><tr><th>单词</th><th>音标</th><th>中文</th><th>词性</th></tr></thead>
+            <thead><tr><th>单词</th><th>翻译</th><th>词性</th><th>附加信息</th></tr></thead>
             <tbody id="preview-tbody"></tbody>
           </table>
         </div>
@@ -422,7 +431,7 @@
 </div>
 
 	<script src="js/wordlists.js?v=7" defer></script>
-	<script src="js/core.js?v=17" defer></script>
+	<script src="js/core.js?v=18" defer></script>
 	<!-- js/app.js loaded lazily by core.js after successful login -->
 
 </body>

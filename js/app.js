@@ -4071,31 +4071,165 @@ function parseText(text) {
 }
 
 // ========================================================
-//  IMPORT / EXPORT
+//  IMPORT — unified parser: CSV / JSON / TXT
 // ========================================================
-function showPreview(parsed) {
+
+// ── Duplicate import strategy ──────────────────────────
+let _importDupStrategy = 'skip'; // 'skip' | 'overwrite' | 'keep'
+
+// ── AI Extension Interface (reserved) ──────────────────
+// Future: auto-enrich words with stress, POS, level, examples
+async function enhanceWord(wordEntry) {
+  // Placeholder — will be implemented with AI integration
+  // wordEntry: { word, translation, pos?, stress?, gender?, aspect?, ... }
+  // Returns: enriched WordEntry
+  return wordEntry;
+}
+
+// ── CSV field name mapping (English → internal field) ──
+const CSV_FIELD_MAP = {
+  'word': 'ru', 'russian': 'ru', 'foreign': 'ru', '单词': 'ru', '外文': 'ru', 'term': 'ru',
+  'translation': 'zh', 'chinese': 'zh', 'meaning': 'zh', '中文': 'zh', '翻译': 'zh', '释义': 'zh', 'definition': 'zh',
+  'transcription': 'tr', 'phonetic': 'tr', '音标': 'tr', 'pronunciation': 'tr',
+  'pos': 'pos', '词性': 'pos', 'partofspeech': 'pos', 'part_of_speech': 'pos',
+  'stress': 'stress', '重音': 'stress', 'accent': 'stress', 'accented': 'stress',
+  'gender': 'gender', '性别': 'gender', '性': 'gender',
+  'aspect': 'aspect', '体': 'aspect', 'verbaspect': 'aspect', 'verb_aspect': 'aspect',
+  'pairword': 'pairWord', 'pair': 'pairWord', '对应体': 'pairWord', '对应词': 'pairWord', 'partner': 'pairWord',
+  'level': 'level', '等级': 'level', 'cefr': 'level', 'difficulty': 'level',
+  'frequency': 'frequency', '频率': 'frequency', 'freq': 'frequency',
+  'example': 'example', '例句': 'example', 'sentence': 'example',
+  'examplezh': 'exampleZh', 'exampletranslation': 'exampleZh', '例句翻译': 'exampleZh', 'example_translation': 'exampleZh',
+  'mnemonic': 'mnemonic', '记忆': 'mnemonic', '记忆提示': 'mnemonic', 'hint': 'mnemonic', 'note': 'mnemonic',
+};
+
+function _mapCsvRow(headers, cells) {
+  const entry = {};
+  for (let i = 0; i < headers.length; i++) {
+    const key = CSV_FIELD_MAP[(headers[i] || '').toLowerCase().replace(/[\s_-]/g, '')] || headers[i].toLowerCase();
+    entry[key] = (cells[i] || '').trim();
+  }
+  return entry;
+}
+
+// ── Unified text parser: detects CSV/JSON/TXT ──────────
+function parseImportText(text) {
+  if (!text || !text.trim()) return [];
+  text = text.replace(/^﻿/, '').trim(); // strip BOM
+
+  // ── JSON detection ──
+  if (/^\s*\[/.test(text)) {
+    try {
+      const arr = JSON.parse(text);
+      if (!Array.isArray(arr)) throw new Error('Not an array');
+      return arr.map(item => ({
+        ru: (item.word || item.ru || '').trim(),
+        tr: (item.transcription || item.tr || item.phonetic || '').trim(),
+        zh: (item.translation || item.zh || item.meaning || item.chinese || '').trim(),
+        pos: (item.pos || item.partOfSpeech || '').trim(),
+        stress: (item.stress || item.accented || '').trim(),
+        gender: (item.gender || '').trim(),
+        aspect: (item.aspect || '').trim(),
+        pairWord: (item.pairWord || item.pair || item.partner || '').trim(),
+        level: (item.level || item.cefr || '').trim(),
+        frequency: item.frequency || undefined,
+        example: (item.example || item.sentence || '').trim(),
+        exampleZh: (item.exampleZh || item.exampleTranslation || '').trim(),
+        mnemonic: (item.mnemonic || item.note || item.hint || '').trim(),
+      })).filter(w => w.ru && w.zh);
+    } catch(e) { /* not JSON, fall through to TXT/CSV */ }
+  }
+
+  // ── CSV detection: has comma + header row ──
+  const lines = text.split(/\n/).map(l => l.trim()).filter(Boolean);
+  if (lines.length >= 2 && (lines[0].includes(',') || lines[0].includes('\t'))) {
+    const delim = lines[0].includes('\t') ? '\t' : ',';
+    const headerCells = lines[0].split(delim).map(h => h.trim().replace(/^["']|["']$/g, ''));
+    // Check if it looks like a header (contains typical column names)
+    const headerLooksValid = headerCells.some(h =>
+      /^(word|russian|单词|外文|term|foreign|translation|chinese|中文|翻译|meaning|pos|词性)/i.test(h)
+    );
+    if (headerLooksValid) {
+      const rows = [];
+      for (let i = 1; i < lines.length; i++) {
+        // Handle quoted fields
+        const cells = [];
+        let current = '', inQuote = false;
+        for (let j = 0; j < lines[i].length; j++) {
+          const ch = lines[i][j];
+          if (ch === '"' || ch === "'") { inQuote = !inQuote; continue; }
+          if (ch === delim && !inQuote) { cells.push(current.trim()); current = ''; continue; }
+          current += ch;
+        }
+        cells.push(current.trim());
+        const row = _mapCsvRow(headerCells, cells);
+        if (row.ru && row.zh) rows.push(row);
+      }
+      if (rows.length > 0) return rows;
+    }
+  }
+
+  // ── TXT fallback: use existing parseLine ──
+  return lines.map(parseLine).filter(Boolean).map(p => ({
+    ru: p.ru, tr: p.tr || '', zh: p.zh, pos: p.pos || '',
+    stress: '', gender: '', aspect: '', pairWord: '', level: '', example: '', exampleZh: '', mnemonic: ''
+  }));
+}
+
+// ── Preview + duplicate strategy ───────────────────────
+function showImportPreview(parsed) {
   pendingImport = parsed;
   const section = document.getElementById('preview-section');
   const tbody = document.getElementById('preview-tbody');
   const countEl = document.getElementById('preview-count-text');
+  const statsEl = document.getElementById('import-stats');
   const confirmBtn = document.getElementById('confirm-import-btn');
+  const dupOpts = document.getElementById('import-dup-options');
   if (parsed.length === 0) { section.style.display = 'none'; confirmBtn.disabled = true; return; }
 
-  const normalize = s => s.replace(/[́]/g, '').toLowerCase();
+  const normalize = s => (s || '').replace(/[́̀]/g, '').toLowerCase();
   const existingSet = new Set(WORDS.map(w => normalize(w.ru)));
-  let newCount = 0, dupCount = 0;
+  let newCount = 0, dupCount = 0, errCount = 0;
+
   tbody.innerHTML = parsed.map(p => {
-    const isDup = existingSet.has(normalize(p.ru));
+    const n = normalize(p.ru);
+    if (!p.ru || !p.zh) { errCount++; return `<tr class="import-err"><td colspan="4"><i class="fa-solid fa-triangle-exclamation"></i> 无效数据: "${p.ru||'(空)'}" — 缺少单词或翻译</td></tr>`; }
+    const isDup = existingSet.has(n);
     if (isDup) dupCount++; else newCount++;
-    return `<tr><td class="col-ru">${p.ru} ${isDup?'<span class="tag tag-dup">重复</span>':'<span class="tag tag-new">新增</span>'}</td><td class="col-tr">${p.tr||''}</td><td class="col-zh">${p.zh}</td><td class="col-pos">${p.pos||''}</td></tr>`;
+    const dupTag = isDup ? '<span class="tag tag-dup">重复</span>' : '<span class="tag tag-new">新增</span>';
+    const extra = [p.stress, p.gender, p.aspect, p.level].filter(Boolean).join(' · ');
+    return `<tr${isDup?' class="import-dup-row"':''}>
+      <td class="col-ru">${escHtml(p.ru)} ${dupTag}</td>
+      <td class="col-zh">${escHtml(p.zh)}</td>
+      <td class="col-pos">${escHtml(p.pos||'')}</td>
+      <td class="col-meta">${escHtml(extra)}</td>
+    </tr>`;
   }).join('');
-  countEl.innerHTML = `识别到 <strong>${parsed.length}</strong> 个单词（<span style="color:#1565c0;">${newCount} 新增</span>，<span style="color:#e65100;">${dupCount} 重复</span>）`;
-  section.style.display = 'block'; confirmBtn.disabled = (newCount === 0);
+
+  countEl.innerHTML = `共 <strong>${parsed.length}</strong> 词`;
+  statsEl.innerHTML =
+    `<span style="color:var(--success);"><i class="fa-solid fa-circle-plus"></i> ${newCount} 新增</span>` +
+    (dupCount > 0 ? ` · <span style="color:var(--warning);"><i class="fa-solid fa-clone"></i> ${dupCount} 重复</span>` : '') +
+    (errCount > 0 ? ` · <span style="color:var(--danger);"><i class="fa-solid fa-triangle-exclamation"></i> ${errCount} 错误</span>` : '');
+
+  section.style.display = 'block';
+  confirmBtn.disabled = (newCount === 0 && _importDupStrategy === 'skip');
+  if (dupCount > 0 && dupOpts) dupOpts.style.display = 'flex';
+  else if (dupOpts) dupOpts.style.display = 'none';
+}
+
+function setImportDupStrategy(strategy) {
+  _importDupStrategy = strategy;
+  document.querySelectorAll('.import-dup-btn').forEach(b => b.classList.remove('active'));
+  document.getElementById('dup-' + strategy)?.classList.add('active');
+  // Re-evaluate confirm button
+  if (pendingImport.length > 0) showImportPreview(pendingImport);
 }
 
 function clearImport() {
   pendingImport = [];
   document.getElementById('preview-section').style.display = 'none';
+  document.getElementById('import-dup-options').style.display = 'none';
   document.getElementById('confirm-import-btn').disabled = true;
   document.getElementById('paste-area').value = '';
   document.getElementById('file-input').value = '';
@@ -4105,21 +4239,50 @@ function confirmImport() {
   if (pendingImport.length === 0) return;
   const sel = document.getElementById('import-folder-select');
   const targetFolderId = sel ? sel.value : activeFolderId;
-  const normalize = s => s.replace(/[́]/g, '').toLowerCase();
+  const normalize = s => (s || '').replace(/[́̀]/g, '').toLowerCase();
   let targetWords;
   if (targetFolderId === activeFolderId) {
     targetWords = WORDS;
   } else {
     targetWords = loadDeckFromStorage(activeLang, targetFolderId) || [];
   }
-  const existingSet = new Set(targetWords.map(w => normalize(w.ru)));
-  let added = 0;
+  const existingMap = new Map();
+  targetWords.forEach((w, i) => existingMap.set(normalize(w.ru), i));
+
+  let added = 0, overwritten = 0, skipped = 0;
   for (const p of pendingImport) {
-    if (existingSet.has(normalize(p.ru))) continue;
+    if (!p.ru || !p.zh) { skipped++; continue; }
+    const n = normalize(p.ru);
+    const existIdx = existingMap.get(n);
+
+    if (existIdx !== undefined) {
+      if (_importDupStrategy === 'skip') { skipped++; continue; }
+      if (_importDupStrategy === 'overwrite') {
+        const w = targetWords[existIdx];
+        w.ru = p.ru; w.tr = p.tr || w.tr; w.zh = p.zh;
+        w.pos = p.pos || w.pos; w.stress = p.stress || w.stress;
+        w.gender = p.gender || w.gender; w.aspect = p.aspect || w.aspect;
+        w.pairWord = p.pairWord || w.pairWord; w.level = p.level || w.level;
+        w.example = p.example || w.example; w.exampleZh = p.exampleZh || w.exampleZh;
+        w.mnemonic = p.mnemonic || w.mnemonic;
+        overwritten++;
+        continue;
+      }
+      // 'keep' — add as new with dedup suffix
+    }
+
     const id = (crypto.randomUUID) ? crypto.randomUUID() : 'id-' + Date.now() + '-' + Math.random().toString(36).substr(2, 9);
-    targetWords.push({ id, ru: p.ru, tr: p.tr || '', zh: p.zh, pos: p.pos || '', example: '', exampleZh: '', stress: '', gender: '', aspect: '', pairWord: '', level: '', mnemonic: '' });
-    existingSet.add(normalize(p.ru)); added++;
+    const w = {
+      id, ru: p.ru, tr: p.tr || '', zh: p.zh, pos: p.pos || '',
+      example: p.example || '', exampleZh: p.exampleZh || '',
+      stress: p.stress || '', gender: p.gender || '', aspect: p.aspect || '',
+      pairWord: p.pairWord || '', level: p.level || '', mnemonic: p.mnemonic || ''
+    };
+    targetWords.push(w);
+    existingMap.set(n, targetWords.length - 1);
+    added++;
   }
+
   if (targetFolderId !== activeFolderId) {
     saveDeckToStorage(activeLang, targetWords, targetFolderId);
   } else {
@@ -4129,7 +4292,12 @@ function confirmImport() {
     saveDeck();
   }
   updateStats(); clearImport(); closeImportModal(); renderMain();
-  alert('已导入 ' + added + ' 个新单词！');
+
+  const parts = [];
+  if (added > 0) parts.push(added + ' 新增');
+  if (overwritten > 0) parts.push(overwritten + ' 覆盖');
+  if (skipped > 0) parts.push(skipped + ' 跳过');
+  showToast('导入完成：' + parts.join('，'), 'success');
 }
 
 function openImportModal() {
@@ -4140,6 +4308,7 @@ function openImportModal() {
   if (sel) {
     sel.innerHTML = folders.map(f => '<option value="' + f.id + '"' + (f.id === activeFolderId ? ' selected' : '') + '>' + escHtml(f.name) + '</option>').join('');
   }
+  _importDupStrategy = 'skip';
   document.getElementById('import-modal').classList.add('show');
   clearImport();
 }
@@ -4153,14 +4322,25 @@ function handleFile(event) {
     reader.onload = function(e) {
       if (typeof mammoth !== 'undefined') {
         mammoth.extractRawText({ arrayBuffer: e.target.result })
-          .then(r => { document.getElementById('paste-area').value = r.value; showPreview(parseText(r.value)); })
+          .then(r => { document.getElementById('paste-area').value = r.value; showImportPreview(parseImportText(r.value)); })
           .catch(err => alert('解析失败：' + err.message));
       } else alert('mammoth.js 加载失败，请刷新重试。');
     };
     reader.readAsArrayBuffer(file);
-  } else if (ext === 'txt') {
+  } else if (ext === 'json') {
     const reader = new FileReader();
-    reader.onload = function(e) { document.getElementById('paste-area').value = e.target.result; showPreview(parseText(e.target.result)); };
+    reader.onload = function(e) {
+      document.getElementById('paste-area').value = e.target.result;
+      showImportPreview(parseImportText(e.target.result));
+    };
+    reader.readAsText(file);
+  } else {
+    // .txt, .csv, or anything else — treat as text
+    const reader = new FileReader();
+    reader.onload = function(e) {
+      document.getElementById('paste-area').value = e.target.result;
+      showImportPreview(parseImportText(e.target.result));
+    };
     reader.readAsText(file);
   }
 }
@@ -4168,9 +4348,9 @@ function handleFile(event) {
 function parsePastedText() {
   const text = document.getElementById('paste-area').value;
   if (!text.trim()) return;
-  const parsed = parseText(text);
-  if (parsed.length === 0) { alert('未能识别到有效的单词格式。'); return; }
-  showPreview(parsed);
+  const parsed = parseImportText(text);
+  if (parsed.length === 0) { alert('未能识别到有效的单词格式。\n\n支持格式：\n• TXT: 单词=翻译 或 单词 翻译\n• CSV: word,translation,pos,...\n• JSON: [{"word":"...","translation":"..."}]'); return; }
+  showImportPreview(parsed);
 }
 
 // ── Full Data Backup / Restore ──────────────────────
@@ -4231,8 +4411,8 @@ function importFullBackup(event) {
 
 function exportWords() {
   if (WORDS.length === 0) { alert('没有单词可导出'); return; }
-  const header = '单词\t音标\t中文\t词性\t例句\t例句翻译';
-  const lines = WORDS.map(w => [w.ru, w.tr||'', w.zh, w.pos||'', w.example||'', w.exampleZh||''].join('\t'));
+  const header = '单词\t音标\t中文\t词性\t重音\t性别\t体\t对应词\t等级\t例句\t例句翻译\t记忆提示';
+  const lines = WORDS.map(w => [w.ru, w.tr||'', w.zh, w.pos||'', w.stress||'', w.gender||'', w.aspect||'', w.pairWord||'', w.level||'', w.example||'', w.exampleZh||'', w.mnemonic||''].join('\t'));
   const currentLang = userLanguages.find(l => l.lang === activeLang);
   const currentFolder = folders.find(f => f.id === activeFolderId);
   const langName = currentLang ? currentLang.name : activeLang;
@@ -4437,8 +4617,8 @@ function exportStarredWords() {
     if (starredWords[WORDS[i].id]) starred.push(WORDS[i]);
   }
   if (starred.length === 0) { alert('还没有收藏的单词'); return; }
-  const header = '单词\t音标\t中文\t词性\t例句\t例句翻译';
-  const lines = starred.map(w => [w.ru, w.tr||'', w.zh, w.pos||'', w.example||'', w.exampleZh||''].join('\t'));
+  const header = '单词\t音标\t中文\t词性\t重音\t性别\t体\t对应词\t等级\t例句\t例句翻译\t记忆提示';
+  const lines = starred.map(w => [w.ru, w.tr||'', w.zh, w.pos||'', w.stress||'', w.gender||'', w.aspect||'', w.pairWord||'', w.level||'', w.example||'', w.exampleZh||'', w.mnemonic||''].join('\t'));
   const currentLang = userLanguages.find(l => l.lang === activeLang);
   const currentFolder = folders.find(f => f.id === activeFolderId);
   const langName = currentLang ? currentLang.name : activeLang;

@@ -858,6 +858,13 @@
   .tag-new { background: var(--primary-light); color: var(--primary); }
   .tag-dup { background: var(--warning-light); color: #9A4F16; }
 
+  /* Import duplicate strategy */
+  .import-dup-btn { padding: 4px 10px; font-size: 11px; border-radius: var(--radius-full); }
+  .import-dup-btn.active { background: var(--primary); color: #fff; }
+  .import-dup-row { opacity: .6; }
+  .import-err { background: var(--danger-light); color: var(--danger); font-size: 12px; }
+  .col-meta { font-size: 11px; color: var(--text-muted); max-width: 120px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
   .form-group { margin-bottom: 14px; }
   .form-group label { display: block; font-size: var(--text-sm); font-weight: 600; color: var(--text-secondary); margin-bottom: var(--space-xs); }
   .form-group input {
