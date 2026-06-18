@@ -259,6 +259,8 @@
   /* ── MaiMai-Style Flashcard ─── */
   .flashcard-container { display: flex; flex-direction: column; gap: var(--space-md); contain: layout style; }
 
+  /* ── Card Stage — fixed-height, internal scroll ── */
+
   .word-progress { text-align: center; font-size: var(--text-sm); color: var(--text-muted); margin-bottom: 4px; }
   .word-progress strong { color: var(--text); }
 
@@ -266,14 +268,28 @@
     background: var(--card-gradient);
     border-radius: var(--radius-xl);
     box-shadow: var(--shadow-lg), var(--shadow-inset);
-    padding: var(--space-3xl) var(--space-2xl); text-align: center;
-    transition: all var(--transition-expand); position: relative;
-    min-height: 340px; display: flex; flex-direction: column;
-    align-items: center; justify-content: center;
+    padding: var(--space-xl) var(--space-2xl) var(--space-lg);
+    text-align: center; position: relative;
+    max-height: 520px; min-height: 200px;
+    display: flex; flex-direction: column;
+    align-items: center;
     animation: cardEnter .35s ease;
     border: 1px solid var(--glass-border);
     contain: layout style paint;
-    will-change: transform;
+    transition: all var(--transition-expand);
+  }
+  /* Front content — fixed at top, no shrink */
+  .card-stage .russian-word,
+  .card-stage .russian-tr { flex-shrink: 0; }
+  /* Answer reveal — scrollable when content overflows */
+  .card-stage .answer-reveal {
+    overflow-y: auto;
+    flex: 1 1 auto;
+    min-height: 0;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: thin;
+    scrollbar-color: var(--border) transparent;
+    padding-right: 2px;
   }
   /* Subtle radial glow from top */
   .card-stage::after {
@@ -316,9 +332,10 @@
 
   /* Answer reveal area */
   .answer-reveal {
-    margin-top: var(--space-md); padding-top: var(--space-md);
+    margin-top: var(--space-sm); padding-top: var(--space-sm);
     border-top: 1px solid var(--border); width: 100%;
     animation: revealSlide .4s cubic-bezier(.22,.61,.36,1);
+    text-align: left;
   }
   @keyframes revealSlide {
     from { opacity: 0; transform: translateY(12px); }
@@ -327,7 +344,7 @@
   .answer-hidden { display: none; }
 
   /* Stage actions */
-  .stage-actions { display: flex; gap: 10px; justify-content: center; margin-top: var(--space-md); }
+  .stage-actions { display: flex; gap: 10px; justify-content: center; margin-top: var(--space-md); flex-shrink: 0; }
   .stage-nav { display: flex; gap: 6px; justify-content: center; margin-top: var(--space-xs); }
 
   .card-srs-badge { font-size: var(--text-xs); color: var(--text-secondary); padding: 2px 8px; border-radius: var(--radius-full); font-weight: 500; }
@@ -1017,7 +1034,7 @@
     .header-right { gap: 3px; }
     .btn-icon { padding: 4px 7px; font-size: 11px; }
     .btn-theme { width: 30px; height: 30px; font-size: 14px; }
-    .card-stage { min-height: 280px; padding: var(--space-2xl) var(--space-xl); }
+    .card-stage { max-height: 440px; min-height: 200px; padding: var(--space-lg) var(--space-xl) var(--space-md); }
     .russian-word { font-size: var(--text-3xl); }
     .chinese-def { font-size: 24px; }
     .card-stage .star-btn-card { top: 10px; left: 12px; font-size: 20px; }
@@ -1065,7 +1082,7 @@
   @media (max-width: 400px) {
     .stats-grid { grid-template-columns: 1fr; }
     :root { --text-4xl: clamp(26px, 8vw, 30px); }
-    .card-stage { min-height: 220px; padding: var(--space-xl) var(--space-md); }
+    .card-stage { max-height: 360px; min-height: 180px; padding: var(--space-md) var(--space-md) var(--space-sm); }
     .russian-word { font-size: clamp(24px, 7.5vw, 28px); }
     .chinese-def { font-size: clamp(20px, 6vw, 24px); }
     .header-right { gap: 2px; }
