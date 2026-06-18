@@ -611,13 +611,39 @@ const WORD_INFO_MAP = {
   'хорошо':      { pos:'副词', stress:'хорошо́', level:'A1', mnemonic:'由形容词 хороший 变化而来', example:'Я хорошо говорю по-русски.', exampleZh:'我俄语说得很好。' },
 };
 
+let _wordInfoDb = null;
+let _wordInfoDbLoading = false;
+let _wordInfoDbPromise = null;
+
+async function loadWordInfoDb() {
+  if (_wordInfoDb) return _wordInfoDb;
+  if (_wordInfoDbPromise) return _wordInfoDbPromise;
+  _wordInfoDbLoading = true;
+  _wordInfoDbPromise = fetch('js/wordinfo-data.js?v=1')
+    .then(r => r.text())
+    .then(t => {
+      // Extract JSON from the JS file (const WORD_INFO_DB = {...};)
+      const json = t.slice(t.indexOf('{'), t.lastIndexOf('}') + 1);
+      _wordInfoDb = JSON.parse(json);
+      _wordInfoDbLoading = false;
+      return _wordInfoDb;
+    })
+    .catch(e => {
+      console.warn('WordInfo DB load failed:', e);
+      _wordInfoDbLoading = false;
+      _wordInfoDbPromise = null;
+      return null;
+    });
+  return _wordInfoDbPromise;
+}
+
 function enrichWordFromMap(w) {
   if (!w || w._enriched) return;
 
   // Strip stress marks for matching
   const clean = w.ru.replace(/[́̀]/g, '').toLowerCase();
 
-  // 1. Check curated WORD_INFO_MAP (has mnemonics, examples, levels)
+  // 1. Check curated WORD_INFO_MAP (has mnemonics, examples, levels) — synchronous
   const curated = WORD_INFO_MAP[clean] || WORD_INFO_MAP[w.ru];
   if (curated) {
     if (curated.pos && !w.pos) w.pos = curated.pos;
@@ -630,24 +656,46 @@ function enrichWordFromMap(w) {
     if (curated.example && !w.example) { w.example = curated.example; w.exampleZh = curated.exampleZh || ''; }
   }
 
-  // 2. Query OpenRussian DB for grammatical data (covers ALL ~58K words)
-  if (typeof WORD_INFO_DB !== 'undefined') {
-    const dbInfo = WORD_INFO_DB[clean] || WORD_INFO_DB[w.ru.toLowerCase()];
-    if (dbInfo) {
-      // POS from DB (if not already set by curated map or user)
-      if (dbInfo.p && !w.pos) w.pos = dbInfo.p;
-      // Stress/accented form
-      if (dbInfo.s && !w.stress) w.stress = dbInfo.s;
-      // Gender (convert m/f/n codes)
-      if (dbInfo.g && !w.gender) w.gender = dbInfo.g;
-      // Aspect
-      if (dbInfo.a && !w.aspect) w.aspect = dbInfo.a;
-      // Pair word (aspect pair)
-      if (dbInfo.w && !w.pairWord) w.pairWord = dbInfo.w;
-    }
+  // 2. Query OpenRussian DB (lazy async) for ALL ~58K words
+  if (_wordInfoDb) {
+    _applyDbInfo(w, clean);
+  } else if (!_wordInfoDbLoading) {
+    // Start loading; enrich when ready
+    loadWordInfoDb().then(() => {
+      if (_wordInfoDb) {
+        // Re-enrich if word hasn't been fully enriched yet
+        const c = w.ru.replace(/[́̀]/g, '').toLowerCase();
+        _applyDbInfo(w, c);
+        // Refresh the card if currently displaying this word
+        if (currentMode === 'flashcard' && flashcardPool.length > 0) {
+          const currentW = WORDS[flashcardPool[flashcardIndex]];
+          if (currentW && currentW.id === w.id) {
+            const revealEl = document.getElementById('answer-reveal');
+            const stageEl = document.getElementById('card-stage');
+            if (revealEl && stageEl && !stageEl.classList.contains('revealed')) {
+              // Card is showing, re-render word info
+              updateWordInfoHtml(revealEl, w);
+            }
+          }
+        }
+      }
+    });
   }
 
   w._enriched = true;
+}
+
+function _applyDbInfo(w, clean) {
+  if (!_wordInfoDb) return;
+  const dbInfo = _wordInfoDb[clean] || _wordInfoDb[w.ru.toLowerCase()];
+  if (!dbInfo) return;
+  let changed = false;
+  if (dbInfo.p && !w.pos) { w.pos = dbInfo.p; changed = true; }
+  if (dbInfo.s && !w.stress) { w.stress = dbInfo.s; changed = true; }
+  if (dbInfo.g && !w.gender) { w.gender = dbInfo.g; changed = true; }
+  if (dbInfo.a && !w.aspect) { w.aspect = dbInfo.a; changed = true; }
+  if (dbInfo.w && !w.pairWord) { w.pairWord = dbInfo.w; changed = true; }
+  if (changed) saveDeckDebounced();
 }
 
 // ========================================================
